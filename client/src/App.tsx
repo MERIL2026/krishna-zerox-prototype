@@ -8,6 +8,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { products, type CartLine, type Product } from "./data/store";
 import Admin from "./pages/Admin";
 import AdminOrders from "./pages/AdminOrders";
+import AdminProducts from "./pages/AdminProducts";
+import AdminCategories from "./pages/AdminCategories";
 import CustomerOrders from "./pages/CustomerOrders";
 import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
@@ -20,6 +22,8 @@ function Router({ cart, onAdd, onUpdate, onRemove, onPrint }: { cart: CartLine[]
   const [location] = useLocation();
   if (location === "/admin") return <Admin />;
   if (location === "/admin/orders") return <AdminOrders />;
+  if (location === "/admin/products") return <AdminProducts />;
+  if (location === "/admin/categories") return <AdminCategories />;
   if (location === "/orders") return <StorefrontLayout cart={cart} onAdd={(item) => onAdd(item)} onUpdate={onUpdate} onRemove={onRemove} onPrint={onPrint}><CustomerOrders /></StorefrontLayout>;
   if (location === "/checkout") return <Checkout cart={cart} />;
   if (location.startsWith("/orders/")) return <OrderConfirmation orderId={Number(location.split("/").pop())} />;

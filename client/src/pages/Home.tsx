@@ -42,7 +42,22 @@ export default function Home({
   const shouldReduceMotion = useReducedMotion();
 
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { staleTime: 60_000 });
+  const categoriesQuery = trpc.catalog.categories.useQuery(undefined, { staleTime: 60_000 });
   const catalogProducts = catalogQuery.data?.length ? catalogQuery.data : products;
+
+  const displayCategories = categoriesQuery.data?.length
+    ? categoriesQuery.data.map((c) => {
+        const match = categories.find((fc) => fc.label.toLowerCase() === c.name.toLowerCase());
+        return {
+          label: c.name,
+          kicker: c.description || match?.kicker || "Everyday magic",
+          color: c.color || match?.color || "cream",
+          art: match?.art || "✦",
+          count: match?.count || "Curated picks",
+        };
+      })
+    : categories;
+
   const featured =
     activeCategory === "All picks"
       ? catalogProducts.slice(0, 4)
@@ -243,7 +258,7 @@ export default function Home({
             </p>
           </div>
           <div className="category-grid">
-            {categories.map((category) => (
+            {displayCategories.map((category) => (
               <a
                 href={
                   category.label === "Printing"

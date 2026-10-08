@@ -22,6 +22,7 @@ export const categories = mysqlTable("categories", {
   slug: varchar("slug", { length: 80 }).notNull().unique(),
   name: varchar("name", { length: 120 }).notNull(),
   description: text("description"),
+  image: text("image"),
   color: varchar("color", { length: 24 }).notNull().default("cream"),
   sortOrder: int("sortOrder").notNull().default(0),
   isPublished: int("isPublished").notNull().default(1),
@@ -31,24 +32,31 @@ export const categories = mysqlTable("categories", {
 
 export const products = mysqlTable("products", {
   id: int("id").autoincrement().primaryKey(),
+  sku: varchar("sku", { length: 80 }),
   slug: varchar("slug", { length: 120 }).notNull().unique(),
   name: varchar("name", { length: 180 }).notNull(),
+  shortDescription: text("shortDescription"),
   categoryId: int("categoryId").notNull(),
   pricePaise: int("pricePaise").notNull(),
   oldPricePaise: int("oldPricePaise"),
   ratingTenths: int("ratingTenths").notNull().default(0),
   badge: varchar("badge", { length: 32 }),
   image: text("image").notNull(),
+  additionalImages: text("additionalImages"),
   swatch: varchar("swatch", { length: 24 }).notNull().default("#FFF8EF"),
   description: text("description"),
   stock: int("stock").notNull().default(0),
   reservedStock: int("reservedStock").notNull().default(0),
   lowStockThreshold: int("lowStockThreshold").notNull().default(5),
   isPublished: int("isPublished").notNull().default(1),
+  isFeatured: int("isFeatured").notNull().default(0),
   sortOrder: int("sortOrder").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  skuIdx: index("products_sku_idx").on(table.sku),
+  categoryIdx: index("products_category_idx").on(table.categoryId),
+}));
 
 export const carts = mysqlTable("carts", {
   id: int("id").autoincrement().primaryKey(),

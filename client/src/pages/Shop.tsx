@@ -19,11 +19,15 @@ export default function Shop({ onAdd }: { onAdd: (product: Product) => void }) {
   const shouldReduceMotion = useReducedMotion();
 
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { staleTime: 60_000 });
+  const categoriesQuery = trpc.catalog.categories.useQuery(undefined, { staleTime: 60_000 });
   const catalogProducts = catalogQuery.data?.length ? catalogQuery.data : products;
 
   const categories = useMemo(() => {
-    return ["All", ...Array.from(new Set(catalogProducts.map((p) => p.category)))];
-  }, [catalogProducts]);
+    const fromDb = categoriesQuery.data?.length
+      ? categoriesQuery.data.map((c) => c.name)
+      : Array.from(new Set(catalogProducts.map((p) => p.category)));
+    return ["All", ...fromDb];
+  }, [categoriesQuery.data, catalogProducts]);
 
   const filtered = useMemo(() => {
     let next = catalogProducts.filter((product) => {

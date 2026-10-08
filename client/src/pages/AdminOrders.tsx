@@ -134,14 +134,14 @@ export default function AdminOrders() {
           <a className="active" href="/admin/orders">
             <span>◌</span> Orders {list.data && <b>{list.data.length}</b>}
           </a>
-          <a href="/admin">
-            <span>▣</span> Print queue
-          </a>
-          <a href="/admin">
+          <a href="/admin/products">
             <span>□</span> Products
           </a>
+          <a href="/admin/categories">
+            <span>◫</span> Categories
+          </a>
           <a href="/admin">
-            <span>◫</span> Inventory
+            <span>▣</span> Print queue
           </a>
         </nav>
       </aside>
