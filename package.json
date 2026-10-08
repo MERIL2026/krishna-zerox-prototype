@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
+  "imports": {
+    "@shared/*": "./shared/*"
+  },
   "scripts": {
     "dev": "node ./node_modules/tsx/dist/cli.mjs watch server/_core/index.ts",
     "build": "node ./node_modules/vite/bin/vite.js build && node build-server.mjs",

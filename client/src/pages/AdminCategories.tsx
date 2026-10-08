@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { startLogin } from "@/const";
+import AdminGate from "@/components/AdminGate";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 
@@ -44,7 +44,7 @@ const COLOR_OPTIONS = [
 ];
 
 export default function AdminCategories() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
@@ -111,46 +111,9 @@ export default function AdminCategories() {
     return true;
   });
 
-  if (loading) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <LockKeyhole size={22} />
-          <h1>Checking access…</h1>
-          <p>Verifying category permissions.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <LockKeyhole size={22} />
-          <h1>Operations sign-in</h1>
-          <p>Sign in with your authorized account to manage categories.</p>
-          <button className="admin-primary" onClick={() => startLogin()}>
-            Sign in to continue
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!["owner", "admin", "staff"].includes(user.role)) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <ShieldAlert size={22} />
-          <h1>Access restricted</h1>
-          <p>Your account does not have category permissions.</p>
-          <Link href="/" className="admin-primary">
-            Back to storefront
-          </Link>
-        </div>
-      </div>
-    );
+  const isOperationsUser = Boolean(user && ["owner", "admin", "staff"].includes(user.role));
+  if (loading || !user || !isOperationsUser) {
+    return <AdminGate loading={loading} user={user} onLogout={logout} />;
   }
 
   return (

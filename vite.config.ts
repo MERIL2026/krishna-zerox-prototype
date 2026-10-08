@@ -162,9 +162,6 @@ function vitePluginPublicPlatformConfig(): Plugin {
         res.end(publicPlatformScript());
       });
     },
-    generateBundle() {
-      this.emitFile({ type: "asset", fileName: "api/platform/config.js", source: publicPlatformScript() });
-    },
   };
 }
 

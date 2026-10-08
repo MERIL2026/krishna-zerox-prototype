@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { startLogin } from "@/const";
+import AdminGate from "@/components/AdminGate";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 
@@ -48,7 +48,7 @@ interface ProductFormData {
 }
 
 export default function AdminProducts() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number | undefined>(undefined);
   const [stockFilter, setStockFilter] = useState<StockFilter>("ALL");
@@ -130,46 +130,9 @@ export default function AdminProducts() {
   const products = productsQuery.data ?? [];
   const categoriesList = categoriesQuery.data ?? [];
 
-  if (loading) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <LockKeyhole size={22} />
-          <h1>Checking access…</h1>
-          <p>Verifying catalog permissions.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <LockKeyhole size={22} />
-          <h1>Operations sign-in</h1>
-          <p>Sign in with your authorized account to manage the catalog.</p>
-          <button className="admin-primary" onClick={() => startLogin()}>
-            Sign in to continue
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!["owner", "admin", "staff"].includes(user.role)) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <ShieldAlert size={22} />
-          <h1>Access restricted</h1>
-          <p>Your account does not have catalog management permissions.</p>
-          <Link href="/" className="admin-primary">
-            Back to storefront
-          </Link>
-        </div>
-      </div>
-    );
+  const isOperationsUser = Boolean(user && ["owner", "admin", "staff"].includes(user.role));
+  if (loading || !user || !isOperationsUser) {
+    return <AdminGate loading={loading} user={user} onLogout={logout} />;
   }
 
   return (

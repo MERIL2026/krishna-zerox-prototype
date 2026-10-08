@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronRight, FileText, LockKeyhole, RefreshCw, Search, Shie
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { startLogin } from "@/const";
+import AdminGate from "@/components/AdminGate";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import type { Order } from "../../../drizzle/schema";
@@ -37,7 +37,7 @@ const statusClass = (status: string) => {
 };
 
 export default function AdminOrders() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -77,46 +77,9 @@ export default function AdminOrders() {
     });
   }, [list.data, searchTerm, statusFilter]);
 
-  if (loading) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <LockKeyhole size={22} />
-          <h1>Checking access…</h1>
-          <p>Verifying operations permissions.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <LockKeyhole size={22} />
-          <h1>Operations sign-in</h1>
-          <p>Sign in with your authorized Paperlane account to view orders.</p>
-          <button className="admin-primary" onClick={() => startLogin()}>
-            Sign in to continue
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!["owner", "admin", "staff"].includes(user.role)) {
-    return (
-      <div className="admin-gate">
-        <div className="admin-gate-card">
-          <ShieldAlert size={22} />
-          <h1>Access restricted</h1>
-          <p>Your account does not have orders permission.</p>
-          <Link href="/" className="admin-primary">
-            Back to shop
-          </Link>
-        </div>
-      </div>
-    );
+  const isOperationsUser = Boolean(user && ["owner", "admin", "staff"].includes(user.role));
+  if (loading || !user || !isOperationsUser) {
+    return <AdminGate loading={loading} user={user} onLogout={logout} />;
   }
 
   return (
