@@ -192,7 +192,7 @@ h1, h2, h3, h4 {
   font-family: 'Plus Jakarta Sans', sans-serif;
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.04em;
   color: var(--ink);
   padding: 3px 8px;
   background: rgba(23, 21, 21, 0.08);
@@ -1531,6 +1531,7 @@ h1, h2, h3, h4 {
 
 .custom-copy h2,
 .favorites-copy h2,
+.loyalty-grid h2,
 .loyalty-card h2 {
   margin: 12px 0;
   font-family: 'Plus Jakarta Sans', sans-serif;
@@ -1541,7 +1542,8 @@ h1, h2, h3, h4 {
 }
 
 .custom-copy p,
-.favorites-copy p {
+.favorites-copy p,
+.loyalty-grid p {
   max-width: 420px;
   color: #4e4458;
   font-size: 16px;
@@ -1551,7 +1553,7 @@ h1, h2, h3, h4 {
 .custom-collage,
 .favorites-collage {
   position: relative;
-  min-height: 380px;
+  min-height: 440px;
 }
 
 .custom-tile,
@@ -1596,10 +1598,10 @@ h1, h2, h3, h4 {
   color: rgba(23, 21, 21, 0.7);
 }
 
-.custom-tile:nth-child(1) { left: 0; top: 40px; background: var(--pink); transform: rotate(-5deg); }
-.custom-tile:nth-child(2) { right: 6%; top: 0; background: var(--yellow); transform: rotate(5deg); }
-.custom-tile:nth-child(3) { left: 16%; bottom: 0; background: var(--mint); transform: rotate(3deg); }
-.custom-tile:nth-child(4) { right: 0; bottom: 20px; background: var(--cyan); transform: rotate(-6deg); }
+.custom-tile:nth-child(1) { left: 0; top: 20px; background: var(--pink); transform: rotate(-5deg); }
+.custom-tile:nth-child(2) { right: 4%; top: 0; background: var(--yellow); transform: rotate(5deg); }
+.custom-tile:nth-child(3) { left: 10%; bottom: 10px; background: var(--mint); transform: rotate(3deg); }
+.custom-tile:nth-child(4) { right: 0; bottom: 25px; background: var(--cyan); transform: rotate(-6deg); }
 
 .custom-orbit-text {
   position: absolute;
@@ -1962,6 +1964,11 @@ h1, h2, h3, h4 {
   justify-content: flex-end;
 }
 
+.overlay.modal-centered {
+  justify-content: center;
+  align-items: center;
+}
+
 .overlay-scrim {
   position: absolute;
   inset: 0;
@@ -1991,6 +1998,13 @@ h1, h2, h3, h4 {
   border: 1.5px solid var(--ink);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-lg);
+}
+
+.modal-centered .print-modal {
+  align-self: center;
+  margin: auto;
+  max-width: 580px;
+  width: min(580px, calc(100% - 32px));
 }
 
 .drawer-head,
@@ -3829,6 +3843,10 @@ h1, h2, h3, h4 {
 
   .footer-note {
     grid-column: span 2;
+  }
+
+  .site-footer {
+    padding-bottom: 96px;
   }
 
   .footer-bottom {

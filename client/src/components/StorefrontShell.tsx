@@ -361,7 +361,7 @@ function PrintModal({ onClose }: { onClose: () => void }) {
   }, [color, paper, sides, finish, copies]);
 
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="Start a print order">
+    <div className="overlay modal-centered" role="dialog" aria-modal="true" aria-label="Start a print order">
       <motion.button
         className="overlay-scrim"
         aria-label="Close printing dialog"

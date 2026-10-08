@@ -145,8 +145,8 @@ export default function Home({
             <span className="hero-tape tape-pink">NEW IN THE SHOP</span>
             <div className="hero-photo-frame">
               <img
-                src="/manus-storage/async-images/gRZv044B1QIKDt7lnuycFE/image-1.webp"
-                alt="Curated arrangement of colorful stationery and paper goods at Krishna Xerox"
+                src="https://images.unsplash.com/photo-1586075010923-2dd4570fb338?auto=format&fit=crop&w=1200&q=85"
+                alt="Curated arrangement of colorful stationery, notebooks, and paper goods at Krishna Xerox"
               />
               <div className="hero-photo-tag">
                 <span>01</span>
