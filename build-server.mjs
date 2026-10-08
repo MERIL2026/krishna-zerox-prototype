@@ -1,8 +1,7 @@
 /**
  * build-server.mjs
  * Cross-platform server bundle script using esbuild's JS API.
- * Replaces `node ./node_modules/esbuild/bin/esbuild …` which fails on Linux
- * because the esbuild npm package ships a native ELF binary at that path.
+ * Builds both dist/index.js (standalone server) and api/handler.js (Vercel serverless).
  */
 import * as esbuild from "esbuild";
 
@@ -15,4 +14,13 @@ await esbuild.build({
   outdir: "dist",
 });
 
-console.log("Server bundle written to dist/index.js");
+await esbuild.build({
+  entryPoints: ["server/apiHandler.ts"],
+  platform: "node",
+  packages: "external",
+  bundle: true,
+  format: "esm",
+  outfile: "api/handler.js",
+});
+
+console.log("Server bundle written to dist/index.js and api/handler.js");
