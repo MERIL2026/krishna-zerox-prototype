@@ -1,0 +1,1 @@
+{"routes":[{"path":"/","title":"[SHOP NAME] — Stationery & Smart Printing"},{"path":"/shop","title":"Shop — [SHOP NAME]"},{"path":"/checkout","title":"Checkout — [SHOP NAME]"},{"path":"/orders/:id","title":"Order — [SHOP NAME]"},{"path":"/admin","title":"Operations — [SHOP NAME]"}]}
