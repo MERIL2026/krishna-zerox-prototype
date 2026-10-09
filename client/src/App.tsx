@@ -108,7 +108,11 @@ function App() {
     setCart((current) => current.filter((item) => item.id !== id));
   };
 
-  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster position="bottom-right" /><Router key={location} cart={cart} onAdd={addToCart} onUpdate={updateCart} onRemove={removeFromCart} onPrint={() => undefined} /></TooltipProvider></ThemeProvider></ErrorBoundary>;
+  const handleOpenPrint = () => {
+    window.dispatchEvent(new CustomEvent("krishna:open-print-modal"));
+  };
+
+  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster position="bottom-right" /><Router key={location} cart={cart} onAdd={addToCart} onUpdate={updateCart} onRemove={removeFromCart} onPrint={handleOpenPrint} /></TooltipProvider></ThemeProvider></ErrorBoundary>;
 }
 
 export default App;

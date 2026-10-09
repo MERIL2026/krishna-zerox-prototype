@@ -21,6 +21,7 @@ import {
 import type { CartLine } from "@/data/store";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
+import SmartXeroxModal from "./SmartXeroxModal";
 
 const baseNavItems = [
   { label: "Shop", href: "/shop" },
@@ -47,6 +48,12 @@ export function StorefrontLayout({ children, cart, onAdd, onUpdate, onRemove, on
   const [scrolled, setScrolled] = useState(false);
   const [location, navigate] = useLocation();
   const count = cart.reduce((sum, line) => sum + line.quantity, 0);
+
+  useEffect(() => {
+    const handleOpenPrint = () => setPrintOpen(true);
+    window.addEventListener("krishna:open-print-modal", handleOpenPrint);
+    return () => window.removeEventListener("krishna:open-print-modal", handleOpenPrint);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -225,7 +232,7 @@ export function StorefrontLayout({ children, cart, onAdd, onUpdate, onRemove, on
 
       <AnimatePresence>
         {printOpen && (
-          <PrintModal onClose={() => setPrintOpen(false)} />
+          <SmartXeroxModal onClose={() => setPrintOpen(false)} />
         )}
       </AnimatePresence>
 
@@ -344,135 +351,8 @@ function CartDrawer({
   );
 }
 
-function PrintModal({ onClose }: { onClose: () => void }) {
-  const [fileName, setFileName] = useState("");
-  const [paper, setPaper] = useState("A4");
-  const [color, setColor] = useState("Colour");
-  const [sides, setSides] = useState("Single side");
-  const [copies, setCopies] = useState(1);
-  const [finish, setFinish] = useState("None");
-  const [fulfilment, setFulfilment] = useState("Store pickup");
-  const estimate = useMemo(() => {
-    const base = color === "Colour" ? 12 : 3.5;
-    const paperAdd = paper === "A3" ? 8 : paper === "Legal" ? 4 : 0;
-    const sideAdd = sides === "Double side" ? 3 : 0;
-    const finishAdd = finish === "Lamination" ? 18 : finish === "Binding" ? 35 : finish === "Stapling" ? 8 : 0;
-    return Math.round((base + paperAdd + sideAdd + finishAdd) * copies);
-  }, [color, paper, sides, finish, copies]);
-
-  return (
-    <div className="overlay modal-centered" role="dialog" aria-modal="true" aria-label="Start a print order">
-      <motion.button
-        className="overlay-scrim"
-        aria-label="Close printing dialog"
-        onClick={onClose}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-      />
-      <motion.section
-        className="print-modal"
-        initial={{ opacity: 0, scale: 0.94, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.94, y: 15 }}
-        transition={{ duration: 0.22, ease: "easeOut" }}
-      >
-        <div className="print-modal-head">
-          <div>
-            <span className="eyebrow">SMART PRINTING</span>
-            <h2>From file to finished.</h2>
-            <p>Upload from home, or step into the Krishna Xerox counter flow.</p>
-          </div>
-          <button className="close-button" onClick={onClose} aria-label="Close print dialog">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="print-flow">
-          <span className="done"><Check size={13} /> 01 Upload</span>
-          <span>02 Configure</span>
-          <span>03 Review</span>
-          <span>04 Pay</span>
-          <span>05 Queue</span>
-        </div>
-        <label className={`upload-zone ${fileName ? "has-file" : ""}`}>
-          <input type="file" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} />
-          <UploadCloud size={28} />
-          <strong>{fileName || "Drop a file here or browse"}</strong>
-          <small>PDF, DOCX, JPG or PNG · up to 25MB</small>
-        </label>
-        <div className="print-options">
-          <label>
-            <span>Paper size</span>
-            <select value={paper} onChange={(e) => setPaper(e.target.value)}>
-              <option>A4</option>
-              <option>A3</option>
-              <option>Legal</option>
-            </select>
-          </label>
-          <label>
-            <span>Colour</span>
-            <select value={color} onChange={(e) => setColor(e.target.value)}>
-              <option>Colour</option>
-              <option>Black &amp; white</option>
-            </select>
-          </label>
-          <label>
-            <span>Sides</span>
-            <select value={sides} onChange={(e) => setSides(e.target.value)}>
-              <option>Single side</option>
-              <option>Double side</option>
-            </select>
-          </label>
-          <label>
-            <span>Finishing</span>
-            <select value={finish} onChange={(e) => setFinish(e.target.value)}>
-              <option>None</option>
-              <option>Stapling</option>
-              <option>Binding</option>
-              <option>Lamination</option>
-            </select>
-          </label>
-          <label>
-            <span>Copies</span>
-            <div className="number-stepper">
-              <button onClick={() => setCopies(Math.max(1, copies - 1))} aria-label="Decrease copies">
-                <Minus size={14} />
-              </button>
-              <b>{copies}</b>
-              <button onClick={() => setCopies(copies + 1)} aria-label="Increase copies">
-                <Plus size={14} />
-              </button>
-            </div>
-          </label>
-          <label>
-            <span>Fulfilment</span>
-            <select value={fulfilment} onChange={(e) => setFulfilment(e.target.value)}>
-              <option>Store pickup (12 Paper Street)</option>
-              <option>Self counter pickup</option>
-              <option>Delivery</option>
-            </select>
-          </label>
-        </div>
-        <div className="print-bottom">
-          <div>
-            <span className="eyebrow">ESTIMATED TOTAL</span>
-            <strong>₹{estimate}</strong>
-            <small>{fileName ? `${copies} copy · ${paper} · ${color}` : "Ready in approx. 20–30 min"}</small>
-          </div>
-          <button
-            className="button button-dark"
-            onClick={() => {
-              toast.success(fileName ? `${fileName} queued — Printer 01 is available` : "Choose a file to start printing");
-              if (fileName) onClose();
-            }}
-          >
-            Review &amp; continue <ArrowRight size={16} />
-          </button>
-        </div>
-      </motion.section>
-    </div>
-  );
+export function PrintModal({ onClose }: { onClose: () => void }) {
+  return <SmartXeroxModal onClose={onClose} />;
 }
 
 export function SaveButton() {
