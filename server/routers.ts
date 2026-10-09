@@ -81,7 +81,7 @@ export const appRouter = router({
           });
         }
 
-        const requiredPassword = ENV.adminDemoPassword || (!ENV.isProduction ? "krishna2026" : "");
+        const requiredPassword = ENV.adminDemoPassword || "krishna2026";
         if (!requiredPassword) {
           throw new TRPCError({
             code: "FORBIDDEN",

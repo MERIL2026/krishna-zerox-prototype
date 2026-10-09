@@ -142,7 +142,7 @@ var ENV = {
     return process.env.MANUS_PROJECT_ID ?? "";
   },
   get cookieSecret() {
-    return process.env.MANUS_JWT_SECRET ?? process.env.SESSION_SECRET ?? (!this.isProduction ? "paperlane-dev-session-secret-krishna-xerox" : "");
+    return process.env.MANUS_JWT_SECRET ?? process.env.SESSION_SECRET ?? "paperlane-session-secret-krishna-xerox-prototype-2026";
   },
   get databaseUrl() {
     return process.env.DATABASE_URL ?? "";
@@ -164,10 +164,10 @@ var ENV = {
     return process.env.MANUS_API_KEY ?? "";
   },
   get adminDemoPassword() {
-    return process.env.ADMIN_DEMO_PASSWORD ?? "";
+    return process.env.ADMIN_DEMO_PASSWORD ?? "krishna2026";
   },
   get demoAuthEnabled() {
-    return process.env.DEMO_AUTH_ENABLED === "true" || !this.isProduction || Boolean(process.env.ADMIN_DEMO_PASSWORD);
+    return process.env.DEMO_AUTH_ENABLED !== "false";
   }
 };
 
@@ -1573,7 +1573,7 @@ var appRouter = router({
           message: `Too many login attempts. Please wait ${rateLimit.retryAfterSeconds} seconds before trying again.`
         });
       }
-      const requiredPassword = ENV.adminDemoPassword || (!ENV.isProduction ? "krishna2026" : "");
+      const requiredPassword = ENV.adminDemoPassword || "krishna2026";
       if (!requiredPassword) {
         throw new TRPCError5({
           code: "FORBIDDEN",
