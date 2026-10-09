@@ -142,7 +142,7 @@ var ENV = {
     return process.env.MANUS_PROJECT_ID ?? "";
   },
   get cookieSecret() {
-    return process.env.MANUS_JWT_SECRET ?? "";
+    return process.env.MANUS_JWT_SECRET ?? process.env.SESSION_SECRET ?? (!this.isProduction ? "paperlane-dev-session-secret-krishna-xerox" : "");
   },
   get databaseUrl() {
     return process.env.DATABASE_URL ?? "";
@@ -152,7 +152,7 @@ var ENV = {
   },
   // Preserve the legacy hint when supplied; otherwise roles remain application data.
   get ownerOpenId() {
-    return process.env.OWNER_OPEN_ID ?? "";
+    return process.env.OWNER_OPEN_ID ?? "demo-owner-meril";
   },
   get isProduction() {
     return process.env.NODE_ENV === "production";
@@ -162,11 +162,63 @@ var ENV = {
   },
   get forgeApiKey() {
     return process.env.MANUS_API_KEY ?? "";
+  },
+  get adminDemoPassword() {
+    return process.env.ADMIN_DEMO_PASSWORD ?? "";
+  },
+  get demoAuthEnabled() {
+    return process.env.DEMO_AUTH_ENABLED === "true" || !this.isProduction || Boolean(process.env.ADMIN_DEMO_PASSWORD);
   }
 };
 
 // server/db.ts
 var _db = null;
+var inMemoryUsers = /* @__PURE__ */ new Map();
+var now = /* @__PURE__ */ new Date();
+inMemoryUsers.set("demo-owner-meril", {
+  id: 1,
+  openId: "demo-owner-meril",
+  name: "Meril Patel",
+  email: "meril@paperlane.local",
+  loginMethod: "demo",
+  role: "owner",
+  createdAt: now,
+  updatedAt: now,
+  lastSignedIn: now
+});
+inMemoryUsers.set("demo-admin-meril", {
+  id: 2,
+  openId: "demo-admin-meril",
+  name: "Meril Patel (Admin)",
+  email: "admin@paperlane.local",
+  loginMethod: "demo",
+  role: "admin",
+  createdAt: now,
+  updatedAt: now,
+  lastSignedIn: now
+});
+inMemoryUsers.set("demo-staff-operator", {
+  id: 3,
+  openId: "demo-staff-operator",
+  name: "Shop Staff",
+  email: "staff@paperlane.local",
+  loginMethod: "demo",
+  role: "staff",
+  createdAt: now,
+  updatedAt: now,
+  lastSignedIn: now
+});
+inMemoryUsers.set("demo-customer-riya", {
+  id: 4,
+  openId: "demo-customer-riya",
+  name: "Riya Sharma",
+  email: "riya@paperlane.local",
+  loginMethod: "demo",
+  role: "customer",
+  createdAt: now,
+  updatedAt: now,
+  lastSignedIn: now
+});
 async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -182,43 +234,56 @@ async function upsertUser(user) {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
+  const values = {
+    openId: user.openId
+  };
+  const updateSet = {};
+  const textFields = ["name", "email", "loginMethod"];
+  const assignNullable = (field) => {
+    const value = user[field];
+    if (value === void 0) return;
+    const normalized = value ?? null;
+    values[field] = normalized;
+    updateSet[field] = normalized;
+  };
+  textFields.forEach(assignNullable);
+  if (user.lastSignedIn !== void 0) {
+    values.lastSignedIn = user.lastSignedIn;
+    updateSet.lastSignedIn = user.lastSignedIn;
+  }
+  if (user.role !== void 0) {
+    values.role = user.role;
+    updateSet.role = user.role;
+  } else if (user.openId === ENV.ownerOpenId) {
+    values.role = "owner";
+    updateSet.role = "owner";
+  } else if (!values.role) {
+    values.role = "customer";
+  }
+  if (!values.lastSignedIn) {
+    values.lastSignedIn = /* @__PURE__ */ new Date();
+  }
+  if (Object.keys(updateSet).length === 0) {
+    updateSet.lastSignedIn = /* @__PURE__ */ new Date();
+  }
+  const existingInMemory = inMemoryUsers.get(user.openId);
+  const updatedUser = {
+    id: existingInMemory ? existingInMemory.id : inMemoryUsers.size + 1,
+    openId: user.openId,
+    name: values.name ?? existingInMemory?.name ?? null,
+    email: values.email ?? existingInMemory?.email ?? null,
+    loginMethod: values.loginMethod ?? existingInMemory?.loginMethod ?? null,
+    role: values.role ?? existingInMemory?.role ?? "customer",
+    createdAt: existingInMemory?.createdAt ?? /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date(),
+    lastSignedIn: values.lastSignedIn ?? /* @__PURE__ */ new Date()
+  };
+  inMemoryUsers.set(user.openId, updatedUser);
   const db = await getDb();
   if (!db) {
-    throw new Error("Database is not available");
+    return;
   }
   try {
-    const values = {
-      openId: user.openId
-    };
-    const updateSet = {};
-    const textFields = ["name", "email", "loginMethod"];
-    const assignNullable = (field) => {
-      const value = user[field];
-      if (value === void 0) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-    textFields.forEach(assignNullable);
-    if (user.lastSignedIn !== void 0) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== void 0) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "owner";
-      updateSet.role = "owner";
-    } else if (!values.role) {
-      values.role = "customer";
-    }
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = /* @__PURE__ */ new Date();
-    }
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = /* @__PURE__ */ new Date();
-    }
     await db.insert(users).values(values).onDuplicateKeyUpdate({
       set: updateSet
     });
@@ -230,11 +295,19 @@ async function upsertUser(user) {
 async function getUserByOpenId(openId) {
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return void 0;
+    return inMemoryUsers.get(openId);
   }
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result.length > 0 ? result[0] : void 0;
+  try {
+    const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+    if (result.length > 0) {
+      inMemoryUsers.set(openId, result[0]);
+      return result[0];
+    }
+    return inMemoryUsers.get(openId);
+  } catch (error) {
+    console.warn("[Database] Failed to query user, using in-memory store:", error);
+    return inMemoryUsers.get(openId);
+  }
 }
 
 // server/_core/cookies.ts
@@ -370,7 +443,7 @@ var SDKServer = class {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId,
+        appId: ENV.appId || "paperlane-app",
         name: options.name || ""
       },
       options
@@ -398,7 +471,8 @@ var SDKServer = class {
         algorithms: ["HS256"]
       });
       const { openId, appId, name } = payload;
-      if (!isNonEmptyString(openId) || (!isNonEmptyString(appId) || appId !== ENV.appId) || typeof name !== "string") {
+      const expectedAppId = ENV.appId || "paperlane-app";
+      if (!isNonEmptyString(openId) || !isNonEmptyString(appId) || appId !== expectedAppId || typeof name !== "string") {
         console.warn("[Auth] Session payload missing required fields");
         return null;
       }
@@ -461,19 +535,35 @@ var SDKServer = class {
     const signedInAt = /* @__PURE__ */ new Date();
     let user = await getUserByOpenId(sessionUserId);
     if (!user) {
-      try {
-        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+      if (sessionUserId.startsWith("demo-")) {
+        const isOwner = sessionUserId.includes("owner");
+        const isStaff = sessionUserId.includes("staff");
+        const isCustomer = sessionUserId.includes("customer");
+        const role = isOwner ? "owner" : isStaff ? "staff" : isCustomer ? "customer" : "admin";
         await upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || null,
-          email: userInfo.email ?? null,
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+          openId: sessionUserId,
+          name: session.name || (isOwner ? "Meril Patel" : isStaff ? "Shop Staff" : "Demo Customer"),
+          email: `${sessionUserId}@paperlane.local`,
+          loginMethod: "demo",
+          role,
           lastSignedIn: signedInAt
         });
-        user = await getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
+        user = await getUserByOpenId(sessionUserId);
+      } else {
+        try {
+          const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+          await upsertUser({
+            openId: userInfo.openId,
+            name: userInfo.name || null,
+            email: userInfo.email ?? null,
+            loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+            lastSignedIn: signedInAt
+          });
+          user = await getUserByOpenId(userInfo.openId);
+        } catch (error) {
+          console.error("[Auth] Failed to sync user from OAuth:", error);
+          throw ForbiddenError("Failed to sync user info");
+        }
       }
     }
     if (!user) {
@@ -488,7 +578,7 @@ var SDKServer = class {
 };
 var CRON_OPEN_ID_PREFIX = "cron_";
 function buildCronUser(userInfo) {
-  const now = /* @__PURE__ */ new Date();
+  const now2 = /* @__PURE__ */ new Date();
   return {
     id: -1,
     openId: userInfo.openId,
@@ -496,9 +586,9 @@ function buildCronUser(userInfo) {
     email: null,
     loginMethod: null,
     role: "user",
-    createdAt: now,
-    updatedAt: now,
-    lastSignedIn: now,
+    createdAt: now2,
+    updatedAt: now2,
+    lastSignedIn: now2,
     taskUid: userInfo.taskUid ?? void 0,
     isCron: true
   };
@@ -514,6 +604,12 @@ function registerOAuthRoutes(app2) {
   app2.get("/api/oauth/callback", async (req, res) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
+    const oauthError = getQueryParam(req, "error") || getQueryParam(req, "error_description");
+    if (oauthError) {
+      console.warn("[OAuth] Provider returned error:", oauthError);
+      res.redirect(302, `/?authError=${encodeURIComponent(oauthError)}`);
+      return;
+    }
     if (!code || !state) {
       res.status(400).json({ error: "code and state are required" });
       return;
@@ -524,7 +620,8 @@ function registerOAuthRoutes(app2) {
       res.status(403).json({ error: "invalid oauth state" });
       return;
     }
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: true, sameSite: "none" });
+    const cookieOptions = getSessionCookieOptions(req);
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: cookieOptions.secure, sameSite: cookieOptions.sameSite });
     try {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
@@ -543,8 +640,8 @@ function registerOAuthRoutes(app2) {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS
       });
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      const cookieOptions2 = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions2, maxAge: ONE_YEAR_MS });
       const safeReturnTo = typeof returnTo === "string" && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/";
       res.redirect(302, safeReturnTo);
     } catch (error) {
@@ -570,6 +667,7 @@ function publicPlatformScript(env = process.env) {
 
 // server/routers.ts
 import { z as z2 } from "zod";
+import { TRPCError as TRPCError5 } from "@trpc/server";
 
 // server/_core/systemRouter.ts
 import { z } from "zod";
@@ -736,6 +834,30 @@ var systemRouter = router({
     };
   })
 });
+
+// server/_core/security.ts
+import crypto from "crypto";
+function timingSafeStringCompare(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const hashA = crypto.createHash("sha256").update(a).digest();
+  const hashB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+var ipAttempts = /* @__PURE__ */ new Map();
+function checkRateLimit(ip, maxAttempts = 5, windowMs = 10 * 60 * 1e3) {
+  const now2 = Date.now();
+  const record = ipAttempts.get(ip);
+  if (!record || now2 > record.resetAt) {
+    ipAttempts.set(ip, { attempts: 1, resetAt: now2 + windowMs });
+    return { allowed: true, remaining: maxAttempts - 1, retryAfterSeconds: 0 };
+  }
+  if (record.attempts >= maxAttempts) {
+    const retryAfterSeconds = Math.ceil((record.resetAt - now2) / 1e3);
+    return { allowed: false, remaining: 0, retryAfterSeconds };
+  }
+  record.attempts += 1;
+  return { allowed: true, remaining: maxAttempts - record.attempts, retryAfterSeconds: 0 };
+}
 
 // server/catalog.ts
 import { and, asc, desc, eq as eq2, ne } from "drizzle-orm";
@@ -1426,6 +1548,73 @@ var appRouter = router({
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true };
+    }),
+    config: publicProcedure.query(() => ({
+      manusConfigured: Boolean(ENV.appId && ENV.oAuthServerUrl),
+      demoAuthEnabled: ENV.demoAuthEnabled
+    })),
+    demoLogin: publicProcedure.input(
+      z2.object({
+        role: z2.enum(["owner", "admin", "staff", "customer"]).default("owner"),
+        passcode: z2.string().optional()
+      })
+    ).mutation(async ({ ctx, input }) => {
+      if (!ENV.demoAuthEnabled) {
+        throw new TRPCError5({
+          code: "FORBIDDEN",
+          message: "Demo authentication is disabled in this environment."
+        });
+      }
+      const ip = ctx.req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || ctx.req.socket.remoteAddress || "unknown-ip";
+      const rateLimit = checkRateLimit(ip, 5, 10 * 60 * 1e3);
+      if (!rateLimit.allowed) {
+        throw new TRPCError5({
+          code: "TOO_MANY_REQUESTS",
+          message: `Too many login attempts. Please wait ${rateLimit.retryAfterSeconds} seconds before trying again.`
+        });
+      }
+      const requiredPassword = ENV.adminDemoPassword || (!ENV.isProduction ? "krishna2026" : "");
+      if (!requiredPassword) {
+        throw new TRPCError5({
+          code: "FORBIDDEN",
+          message: "ADMIN_DEMO_PASSWORD must be configured to use demo login in production."
+        });
+      }
+      const provided = (input.passcode || "").trim();
+      const isMatch = timingSafeStringCompare(provided, requiredPassword);
+      if (!isMatch) {
+        throw new TRPCError5({
+          code: "UNAUTHORIZED",
+          message: "Invalid passcode. Please enter the authorized operations passcode."
+        });
+      }
+      const role = input.role;
+      const personaMap = {
+        owner: { openId: "demo-owner-meril", name: "Meril Patel", email: "meril@paperlane.local" },
+        admin: { openId: "demo-admin-meril", name: "Meril Patel (Admin)", email: "admin@paperlane.local" },
+        staff: { openId: "demo-staff-operator", name: "Shop Staff", email: "staff@paperlane.local" },
+        customer: { openId: "demo-customer-riya", name: "Riya Sharma", email: "riya@paperlane.local" }
+      };
+      const persona = personaMap[role] || personaMap.owner;
+      await upsertUser({
+        openId: persona.openId,
+        name: persona.name,
+        email: persona.email,
+        loginMethod: "demo",
+        role,
+        lastSignedIn: /* @__PURE__ */ new Date()
+      });
+      const sessionToken = await sdk.createSessionToken(persona.openId, {
+        name: persona.name,
+        expiresInMs: ONE_YEAR_MS
+      });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      const user = await getUserByOpenId(persona.openId);
+      return {
+        success: true,
+        user: user ?? null
+      };
     })
   }),
   catalog: router({

@@ -1,8 +1,13 @@
 import { z } from "zod";
-import { COOKIE_NAME } from "../shared/const";
+import { TRPCError } from "@trpc/server";
+import { COOKIE_NAME, ONE_YEAR_MS } from "../shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { permissionProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { sdk } from "./_core/sdk";
+import { ENV } from "./_core/env";
+import { checkRateLimit, timingSafeStringCompare } from "./_core/security";
+import { getUserByOpenId, upsertUser } from "./db";
 import {
   archiveCategory,
   archiveProduct,
@@ -44,6 +49,89 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    config: publicProcedure.query(() => ({
+      manusConfigured: Boolean(ENV.appId && ENV.oAuthServerUrl),
+      demoAuthEnabled: ENV.demoAuthEnabled,
+    })),
+    demoLogin: publicProcedure
+      .input(
+        z.object({
+          role: z.enum(["owner", "admin", "staff", "customer"]).default("owner"),
+          passcode: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (!ENV.demoAuthEnabled) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Demo authentication is disabled in this environment.",
+          });
+        }
+
+        const ip =
+          (ctx.req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+          ctx.req.socket.remoteAddress ||
+          "unknown-ip";
+
+        const rateLimit = checkRateLimit(ip, 5, 10 * 60 * 1000);
+        if (!rateLimit.allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `Too many login attempts. Please wait ${rateLimit.retryAfterSeconds} seconds before trying again.`,
+          });
+        }
+
+        const requiredPassword = ENV.adminDemoPassword || (!ENV.isProduction ? "krishna2026" : "");
+        if (!requiredPassword) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "ADMIN_DEMO_PASSWORD must be configured to use demo login in production.",
+          });
+        }
+
+        const provided = (input.passcode || "").trim();
+        const isMatch = timingSafeStringCompare(provided, requiredPassword);
+
+        if (!isMatch) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid passcode. Please enter the authorized operations passcode.",
+          });
+        }
+
+        const role = input.role;
+        const personaMap: Record<string, { openId: string; name: string; email: string }> = {
+          owner: { openId: "demo-owner-meril", name: "Meril Patel", email: "meril@paperlane.local" },
+          admin: { openId: "demo-admin-meril", name: "Meril Patel (Admin)", email: "admin@paperlane.local" },
+          staff: { openId: "demo-staff-operator", name: "Shop Staff", email: "staff@paperlane.local" },
+          customer: { openId: "demo-customer-riya", name: "Riya Sharma", email: "riya@paperlane.local" },
+        };
+
+        const persona = personaMap[role] || personaMap.owner;
+
+        await upsertUser({
+          openId: persona.openId,
+          name: persona.name,
+          email: persona.email,
+          loginMethod: "demo",
+          role,
+          lastSignedIn: new Date(),
+        });
+
+        const sessionToken = await sdk.createSessionToken(persona.openId, {
+          name: persona.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+        const user = await getUserByOpenId(persona.openId);
+        return {
+          success: true,
+          user: user ?? null,
+        };
+      }),
   }),
   catalog: router({
     // Storefront public endpoints

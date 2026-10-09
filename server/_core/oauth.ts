@@ -14,6 +14,13 @@ export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
+    const oauthError = getQueryParam(req, "error") || getQueryParam(req, "error_description");
+
+    if (oauthError) {
+      console.warn("[OAuth] Provider returned error:", oauthError);
+      res.redirect(302, `/?authError=${encodeURIComponent(oauthError)}`);
+      return;
+    }
 
     if (!code || !state) {
       res.status(400).json({ error: "code and state are required" });
@@ -29,7 +36,8 @@ export function registerOAuthRoutes(app: Express) {
       res.status(403).json({ error: "invalid oauth state" });
       return;
     }
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: true, sameSite: "none" });
+    const cookieOptions = getSessionCookieOptions(req);
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: cookieOptions.secure, sameSite: cookieOptions.sameSite });
 
     try {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);

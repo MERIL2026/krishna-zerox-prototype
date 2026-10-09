@@ -171,7 +171,7 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId,
+        appId: ENV.appId || "paperlane-app",
         name: options.name || "",
       },
       options
@@ -212,9 +212,11 @@ class SDKServer {
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
 
+      const expectedAppId = ENV.appId || "paperlane-app";
       if (
         !isNonEmptyString(openId) ||
-        (!isNonEmptyString(appId) || appId !== ENV.appId) ||
+        !isNonEmptyString(appId) ||
+        appId !== expectedAppId ||
         typeof name !== "string"
       ) {
         console.warn("[Auth] Session payload missing required fields");
@@ -295,21 +297,37 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // If user not in DB, sync from OAuth server automatically (or restore demo user)
     if (!user) {
-      try {
-        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+      if (sessionUserId.startsWith("demo-")) {
+        const isOwner = sessionUserId.includes("owner");
+        const isStaff = sessionUserId.includes("staff");
+        const isCustomer = sessionUserId.includes("customer");
+        const role = isOwner ? "owner" : isStaff ? "staff" : isCustomer ? "customer" : "admin";
         await db.upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || null,
-          email: userInfo.email ?? null,
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+          openId: sessionUserId,
+          name: session.name || (isOwner ? "Meril Patel" : isStaff ? "Shop Staff" : "Demo Customer"),
+          email: `${sessionUserId}@paperlane.local`,
+          loginMethod: "demo",
+          role,
           lastSignedIn: signedInAt,
         });
-        user = await db.getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
+        user = await db.getUserByOpenId(sessionUserId);
+      } else {
+        try {
+          const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+          await db.upsertUser({
+            openId: userInfo.openId,
+            name: userInfo.name || null,
+            email: userInfo.email ?? null,
+            loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+            lastSignedIn: signedInAt,
+          });
+          user = await db.getUserByOpenId(userInfo.openId);
+        } catch (error) {
+          console.error("[Auth] Failed to sync user from OAuth:", error);
+          throw ForbiddenError("Failed to sync user info");
+        }
       }
     }
 
