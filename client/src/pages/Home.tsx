@@ -10,14 +10,17 @@ import {
   MapPin,
   PackageCheck,
   Printer,
+  RotateCcw,
   ScanLine,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Star,
   WandSparkles,
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
+import { toast } from "sonner";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { categories, customProducts, products, type Product } from "@/data/store";
 import {
@@ -40,6 +43,19 @@ export default function Home({
   const [activeCategory, setActiveCategory] = useState("All picks");
   const [stamps, setStamps] = useState(5);
   const shouldReduceMotion = useReducedMotion();
+
+  const handleResetDemoState = () => {
+    try {
+      localStorage.removeItem("krishna-zerox-print-orders");
+      localStorage.removeItem("paperlane-guest-cart");
+      localStorage.removeItem("krishna-demo-shop-orders");
+      window.dispatchEvent(new CustomEvent("krishna-print-orders-updated"));
+      window.dispatchEvent(new Event("storage"));
+      toast.success("Prototype data reset to initial clean state");
+    } catch {
+      toast.error("Failed to reset prototype data");
+    }
+  };
 
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { staleTime: 60_000 });
   const categoriesQuery = trpc.catalog.categories.useQuery(undefined, { staleTime: 60_000 });
@@ -224,6 +240,159 @@ export default function Home({
               <b>Local &amp; close</b>
               <span>12 Paper Street, hello.</span>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          PHASE 3: CLIENT PROTOTYPE TEST STRIP
+          ===================================================================== */}
+      <section className="prototype-strip" aria-label="Interactive Prototype Experience">
+        <div className="shell">
+          <div className="prototype-header">
+            <span className="prototype-pill">
+              <Sparkles size={12} /> INTERACTIVE PROTOTYPE
+            </span>
+            <h2>Experience Krishna Xerox</h2>
+            <p>
+              From quick document printing to everyday stationery shopping — try both experiences yourself.
+            </p>
+          </div>
+
+          <div className="prototype-cards-grid">
+            {/* CARD A: SMART XEROX */}
+            <div className="prototype-card">
+              <div>
+                <div className="prototype-card-top">
+                  <span className="prototype-badge" style={{ background: "#a8e8ef", color: "#171515" }}>
+                    DOCUMENT PRINTING
+                  </span>
+                  <span className="w-10 h-10 rounded-full border-2 border-ink bg-cyan flex items-center justify-center text-ink shadow-xs">
+                    <Printer size={18} />
+                  </span>
+                </div>
+
+                <h3>Print in 3 Easy Steps</h3>
+                <p>
+                  Upload your document, choose your print settings and confirm your request.
+                </p>
+
+                {/* Journey indicator: Upload -> Customize -> Confirm */}
+                <div className="prototype-journey-box">
+                  <span className="prototype-journey-label">Interactive Journey Flow</span>
+                  <div className="prototype-journey-steps">
+                    <span className="prototype-step-tag">01 Upload</span>
+                    <span className="prototype-journey-arrow">→</span>
+                    <span className="prototype-step-tag">02 Customize</span>
+                    <span className="prototype-journey-arrow">→</span>
+                    <span className="prototype-step-tag">03 Confirm</span>
+                  </div>
+                </div>
+
+                <div className="prototype-bullets">
+                  <div className="prototype-bullet-item">
+                    <Check size={14} className="text-emerald-700" />
+                    <span>PDF, DOCX &amp; photo validation with 25MB check</span>
+                  </div>
+                  <div className="prototype-bullet-item">
+                    <Check size={14} className="text-emerald-700" />
+                    <span>Dynamic INR calculation (Paper GSM, Duplex, Binding, Lamination)</span>
+                  </div>
+                  <div className="prototype-bullet-item">
+                    <Check size={14} className="text-emerald-700" />
+                    <span>Instant demo reference generation synced to Admin Queue</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={onPrint}
+                  className="prototype-card-btn"
+                  style={{ background: "var(--ink)", color: "var(--paper)" }}
+                >
+                  <Printer size={16} /> Try Xerox Demo <ArrowRight size={15} />
+                </button>
+              </div>
+            </div>
+
+            {/* CARD B: ONLINE SHOPPING */}
+            <div className="prototype-card">
+              <div>
+                <div className="prototype-card-top">
+                  <span className="prototype-badge" style={{ background: "#dff86b", color: "#171515" }}>
+                    STATIONERY STORE
+                  </span>
+                  <span className="w-10 h-10 rounded-full border-2 border-ink bg-lime flex items-center justify-center text-ink shadow-xs">
+                    <ShoppingBag size={18} />
+                  </span>
+                </div>
+
+                <h3>Shop Stationery Online</h3>
+                <p>
+                  Explore stationery, add products to your cart and try the checkout experience.
+                </p>
+
+                {/* Journey indicator: Browse -> Add to Cart -> Checkout */}
+                <div className="prototype-journey-box">
+                  <span className="prototype-journey-label">Interactive Journey Flow</span>
+                  <div className="prototype-journey-steps">
+                    <span className="prototype-step-tag">01 Browse</span>
+                    <span className="prototype-journey-arrow">→</span>
+                    <span className="prototype-step-tag">02 Add to Cart</span>
+                    <span className="prototype-journey-arrow">→</span>
+                    <span className="prototype-step-tag">03 Checkout</span>
+                  </div>
+                </div>
+
+                <div className="prototype-bullets">
+                  <div className="prototype-bullet-item">
+                    <Check size={14} className="text-emerald-700" />
+                    <span>Explore notebooks, pens, planners, and studio supplies</span>
+                  </div>
+                  <div className="prototype-bullet-item">
+                    <Check size={14} className="text-emerald-700" />
+                    <span>Slide-out bag drawer with real-time quantity controls</span>
+                  </div>
+                  <div className="prototype-bullet-item">
+                    <Check size={14} className="text-emerald-700" />
+                    <span>Simulated prototype checkout with transparent order breakdown</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Link
+                  href="/shop"
+                  className="prototype-card-btn"
+                  style={{ background: "#dff86b", color: "#171515" }}
+                >
+                  <ShoppingBag size={16} /> Try Shopping Demo <ArrowRight size={15} />
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ textAlign: "center", marginTop: "24px" }}>
+            <button
+              type="button"
+              onClick={handleResetDemoState}
+              style={{
+                background: "none",
+                border: "none",
+                fontSize: "11px",
+                fontWeight: 700,
+                color: "var(--muted)",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                textDecoration: "underline",
+              }}
+            >
+              <RotateCcw size={12} /> Reset Demo Data (Clears local demo orders &amp; cart)
+            </button>
           </div>
         </div>
       </section>
