@@ -1,5 +1,5 @@
-import React, { useState, useId, useMemo } from "react";
-import { motion } from "framer-motion";
+import React, { useState, useId, useMemo, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   UploadCloud,
   FileText,
@@ -13,14 +13,13 @@ import {
   Plus,
   Minus,
   Sparkles,
-  ShieldAlert,
   Loader2,
-  FileCheck,
   Check,
   Building2,
   Truck,
-  RotateCcw,
   ExternalLink,
+  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -45,14 +44,15 @@ interface SmartXeroxModalProps {
   onClose: () => void;
 }
 
-type Step = "UPLOAD" | "CUSTOMIZE" | "CONFIRM" | "SUCCESS";
+type StepNumber = 1 | 2 | 3;
 
 export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
   const { user } = useAuth();
   const fileInputId = useId();
 
-  // Wizard step state
-  const [step, setStep] = useState<Step>("UPLOAD");
+  // Three primary steps (1 = Upload Document, 2 = Choose Print Settings, 3 = Review & Confirm)
+  // Step 4 is the Success Receipt
+  const [currentStep, setCurrentStep] = useState<StepNumber | 4>(1);
 
   // Step 1: Upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -86,6 +86,52 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
   const [createdOrder, setCreatedOrder] = useState<PrintOrder | null>(null);
   const [showPricingDetails, setShowPricingDetails] = useState(false);
 
+  // Discard confirmation state
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  // Has user touched or modified anything?
+  const hasModifications = useMemo(() => {
+    return Boolean(
+      selectedFile !== null ||
+      customer.name.trim().length > 0 ||
+      customer.phone.trim().length > 0 ||
+      currentStep > 1
+    );
+  }, [selectedFile, customer, currentStep]);
+
+  // Lock background scroll and listen for Escape key
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleAttemptClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [hasModifications, currentStep]);
+
+  // Close handler with discard check
+  const handleAttemptClose = () => {
+    if (currentStep === 4) {
+      onClose();
+      return;
+    }
+    if (hasModifications) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
   // Live dynamic pricing
   const pricing = useMemo(() => {
     return calculatePrintPricing(pageCount, config, customer.fulfillment);
@@ -107,12 +153,11 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
     const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png)$/i.test(file.name);
     if (isImage) {
       setPageCount(1);
-    } else {
-      // Default to 1 page if user hasn't touched it
-      if (pageCount <= 1) setPageCount(1);
+    } else if (pageCount <= 1) {
+      setPageCount(1);
     }
 
-    toast.success(`File selected: ${file.name}`, {
+    toast.success(`Document Selected: ${file.name}`, {
       description: `Size: ${formatFileSize(file.size)}`,
     });
   };
@@ -135,21 +180,22 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
     setIsDragging(false);
   };
 
-  // Step 3 validation & submission
-  const handleProceedToConfirm = () => {
+  // Step transitions
+  const handleContinueToSettings = () => {
     if (!selectedFile) {
       setFileError("Please select a file to continue");
       return;
     }
-    if (pageCount < 1) {
-      toast.error("Page count must be at least 1");
-      return;
-    }
-    setStep("CONFIRM");
+    setFileError(null);
+    setCurrentStep(2);
   };
 
+  const handleContinueToReview = () => {
+    setCurrentStep(3);
+  };
+
+  // Final confirmation
   const handleConfirmOrder = () => {
-    // Validate customer fields
     const errors: { name?: string; phone?: string } = {};
     if (!customer.name.trim() || customer.name.trim().length < 2) {
       errors.name = "Please enter customer full name (min 2 characters)";
@@ -162,13 +208,13 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
     if (Object.keys(errors).length > 0) {
       setCustomerErrors(errors);
       toast.error("Missing Customer Details", {
-        description: "Please provide a valid name and phone number for collection.",
+        description: "Please provide a valid name and 10-digit mobile number.",
       });
       return;
     }
 
     setCustomerErrors({});
-    if (isSubmitting) return; // Prevent duplicate submission
+    if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
@@ -194,7 +240,7 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
 
       savePrintOrder(newOrder);
       setCreatedOrder(newOrder);
-      setStep("SUCCESS");
+      setCurrentStep(4); // Success screen
 
       toast.success("Print Order Queued Successfully!", {
         description: `Order Ref: ${orderId} · Total ₹${pricing.totalAmount}`,
@@ -210,477 +256,646 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
   const copyOrderId = () => {
     if (!createdOrder) return;
     navigator.clipboard.writeText(createdOrder.id);
-    toast.success("Order ID copied to clipboard", { description: createdOrder.id });
+    toast.success("Order Reference copied to clipboard", { description: createdOrder.id });
+  };
+
+  const handleResetForNewOrder = () => {
+    setSelectedFile(null);
+    setFileError(null);
+    setPageCount(1);
+    setCreatedOrder(null);
+    setCurrentStep(1);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-ink/70 backdrop-blur-xs overflow-y-auto" role="dialog" aria-modal="true" aria-label="Smart Xerox Print Studio">
+    <div
+      className="sx-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Smart Xerox Print Studio"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleAttemptClose();
+        }
+      }}
+    >
       <motion.div
-        className="w-full max-w-2xl bg-paper border-2 border-ink rounded-xl shadow-lg overflow-hidden my-auto text-ink flex flex-col max-h-[92vh]"
+        className="sx-modal"
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        transition={{ duration: 0.22, ease: "easeOut" }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-ink bg-cream">
+        <div className="sx-header">
           <div className="flex items-center gap-3">
-            <span className="w-9 h-9 rounded-full bg-cyan border border-ink flex items-center justify-center text-ink shadow-xs">
-              <Printer size={18} />
+            <span className="w-10 h-10 rounded-full bg-yellow border-2 border-ink flex items-center justify-center text-ink shadow-xs">
+              <Printer size={20} />
             </span>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="font-extrabold text-lg sm:text-xl font-headline tracking-tight leading-none text-ink">
-                  Smart Xerox
+                  Smart Xerox Studio
                 </h2>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-yellow border border-ink">
+                <span className="text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded-full bg-cyan border border-ink text-ink">
                   Instant Counter
                 </span>
               </div>
               <p className="text-xs text-muted font-body mt-0.5">
-                Upload → Customize → Confirm · Krishna Xerox Counter
+                Upload Document → Choose Settings → Review &amp; Confirm
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full border border-ink bg-paper hover:bg-cream flex items-center justify-center text-ink transition-colors"
+            onClick={handleAttemptClose}
+            className="w-8 h-8 rounded-full border-2 border-ink bg-paper hover:bg-cream flex items-center justify-center text-ink transition-colors cursor-pointer"
             aria-label="Close dialog"
+            title="Close dialog"
           >
             <X size={16} />
           </button>
         </div>
 
-        {/* Step Wizard Indicator */}
-        <div className="grid grid-cols-4 border-b border-ink/20 bg-paper-soft text-xs font-bold divide-x divide-ink/10">
-          <div className={`py-2 px-3 text-center flex items-center justify-center gap-1.5 ${step === "UPLOAD" ? "bg-cyan/30 text-ink" : "text-muted"}`}>
-            <span className="w-4 h-4 rounded-full bg-ink text-paper text-[10px] flex items-center justify-center">1</span>
-            <span className="hidden sm:inline">Upload</span>
+        {/* THREE PRIMARY STEPS PROGRESS INDICATOR (Queue removed) */}
+        {currentStep !== 4 && (
+          <div className="sx-steps-bar" role="navigation" aria-label="Order steps">
+            {/* Step 1: Upload Document */}
+            <button
+              type="button"
+              onClick={() => {
+                if (currentStep > 1) setCurrentStep(1);
+              }}
+              className={`sx-step-item ${currentStep === 1 ? "active" : currentStep > 1 ? "completed" : "upcoming"}`}
+              aria-current={currentStep === 1 ? "step" : undefined}
+            >
+              <span className={`w-5 h-5 rounded-full border border-ink text-[11px] flex items-center justify-center font-bold ${
+                currentStep > 1 ? "bg-emerald-600 text-white border-emerald-700" : currentStep === 1 ? "bg-ink text-paper" : "bg-paper text-muted"
+              }`}>
+                {currentStep > 1 ? "✓" : "1"}
+              </span>
+              <span>1. Upload Document</span>
+              <span className="text-[10px] opacity-75 font-normal hidden sm:inline">
+                {currentStep === 1 ? "(Current)" : currentStep > 1 ? "(Done)" : ""}
+              </span>
+            </button>
+
+            {/* Step 2: Choose Print Settings */}
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedFile && currentStep > 2) setCurrentStep(2);
+                else if (selectedFile && currentStep === 1) handleContinueToSettings();
+              }}
+              disabled={!selectedFile}
+              className={`sx-step-item ${currentStep === 2 ? "active" : currentStep > 2 ? "completed" : "upcoming"}`}
+              aria-current={currentStep === 2 ? "step" : undefined}
+            >
+              <span className={`w-5 h-5 rounded-full border border-ink text-[11px] flex items-center justify-center font-bold ${
+                currentStep > 2 ? "bg-emerald-600 text-white border-emerald-700" : currentStep === 2 ? "bg-ink text-paper" : "bg-paper text-muted"
+              }`}>
+                {currentStep > 2 ? "✓" : "2"}
+              </span>
+              <span>2. Choose Print Settings</span>
+              <span className="text-[10px] opacity-75 font-normal hidden sm:inline">
+                {currentStep === 2 ? "(Current)" : currentStep > 2 ? "(Done)" : ""}
+              </span>
+            </button>
+
+            {/* Step 3: Review & Confirm */}
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedFile && currentStep < 3) handleContinueToReview();
+              }}
+              disabled={!selectedFile || currentStep === 1}
+              className={`sx-step-item ${currentStep === 3 ? "active" : "upcoming"}`}
+              aria-current={currentStep === 3 ? "step" : undefined}
+            >
+              <span className={`w-5 h-5 rounded-full border border-ink text-[11px] flex items-center justify-center font-bold ${
+                currentStep === 3 ? "bg-ink text-paper" : "bg-paper text-muted"
+              }`}>
+                3
+              </span>
+              <span>3. Review &amp; Confirm</span>
+              <span className="text-[10px] opacity-75 font-normal hidden sm:inline">
+                {currentStep === 3 ? "(Current)" : ""}
+              </span>
+            </button>
           </div>
-          <div className={`py-2 px-3 text-center flex items-center justify-center gap-1.5 ${step === "CUSTOMIZE" ? "bg-cyan/30 text-ink" : "text-muted"}`}>
-            <span className="w-4 h-4 rounded-full bg-ink text-paper text-[10px] flex items-center justify-center">2</span>
-            <span className="hidden sm:inline">Customize</span>
-          </div>
-          <div className={`py-2 px-3 text-center flex items-center justify-center gap-1.5 ${step === "CONFIRM" ? "bg-cyan/30 text-ink" : "text-muted"}`}>
-            <span className="w-4 h-4 rounded-full bg-ink text-paper text-[10px] flex items-center justify-center">3</span>
-            <span className="hidden sm:inline">Confirm</span>
-          </div>
-          <div className={`py-2 px-3 text-center flex items-center justify-center gap-1.5 ${step === "SUCCESS" ? "bg-success-bg text-success" : "text-muted"}`}>
-            <span className="w-4 h-4 rounded-full bg-ink text-paper text-[10px] flex items-center justify-center">✓</span>
-            <span className="hidden sm:inline">Queue</span>
-          </div>
-        </div>
+        )}
 
         {/* Modal Scrollable Body */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-5">
-          {/* STEP 1: UPLOAD */}
-          {step === "UPLOAD" && (
-            <div className="space-y-4">
-              <div className="text-left">
-                <h3 className="font-extrabold text-base sm:text-lg">Step 1: Choose Your Document</h3>
-                <p className="text-xs text-muted mt-0.5">
-                  Select your PDF report, Word notes, or photo. We validate the file size and type before sending to print.
+        <div className="sx-body">
+          {/* STEP 1: UPLOAD DOCUMENT */}
+          {currentStep === 1 && (
+            <div className="space-y-5 text-left">
+              <div>
+                <h3 className="font-extrabold text-lg sm:text-xl text-ink tracking-tight">
+                  Print Your Documents in 3 Easy Steps
+                </h3>
+                <p className="text-xs sm:text-sm text-muted mt-1 leading-relaxed">
+                  Choose a document to print. Next, select your print settings and review your estimated total.
                 </p>
               </div>
 
-              {/* Drag and Drop Zone */}
-              {!selectedFile ? (
-                <div
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all cursor-pointer ${
-                    isDragging
-                      ? "border-blue bg-blue/10 scale-[1.01]"
-                      : "border-ink/40 bg-paper hover:border-ink hover:bg-cream/40"
-                  }`}
-                  onClick={() => document.getElementById(fileInputId)?.click()}
-                >
-                  <input
-                    id={fileInputId}
-                    type="file"
-                    className="hidden"
-                    accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleFile(e.target.files[0]);
-                      }
-                    }}
-                  />
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-cream border-2 border-ink flex items-center justify-center text-ink shadow-xs">
-                    <UploadCloud size={28} />
-                  </div>
-                  <strong className="block text-sm sm:text-base font-bold text-ink">
-                    Click to browse or drag & drop document
-                  </strong>
-                  <span className="block text-xs text-muted mt-1">
-                    Supports <strong>PDF, DOCX, JPG, JPEG, PNG</strong> · Max 25 MB
-                  </span>
-                  <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-paper-soft border border-ink/20 text-[11px] font-semibold text-muted">
-                    <Sparkles size={12} className="text-blue" />
-                    <span>Instant counter handover or express campus pickup</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 rounded-xl border-2 border-ink bg-cream/50 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-10 h-10 rounded-lg bg-paper border border-ink flex items-center justify-center shrink-0 text-blue font-bold">
-                        <FileText size={20} />
+              {/* Upload Drop Zone */}
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                className={`p-6 sm:p-8 rounded-xl border-2 text-center transition-all ${
+                  isDragging
+                    ? "border-blue bg-blue/10 scale-[1.01]"
+                    : selectedFile
+                    ? "border-ink bg-cream/30"
+                    : "border-dashed border-ink bg-[#fffdf9] hover:bg-cream/40"
+                }`}
+              >
+                <input
+                  id={fileInputId}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFile(e.target.files[0]);
+                    }
+                  }}
+                />
+
+                {!selectedFile ? (
+                  <div className="space-y-3">
+                    <div className="w-14 h-14 mx-auto rounded-full bg-cream border-2 border-ink flex items-center justify-center text-ink shadow-xs">
+                      <UploadCloud size={28} />
+                    </div>
+                    <div>
+                      <strong className="block text-base font-bold text-ink">
+                        Drag and drop your document here
+                      </strong>
+                      <span className="block text-xs text-muted mt-1">
+                        or click the button below to browse from your device
                       </span>
-                      <div className="min-w-0">
-                        <strong className="block text-sm font-bold truncate text-ink">
-                          {selectedFile.name}
-                        </strong>
-                        <span className="text-xs text-muted">
-                          {formatFileSize(selectedFile.size)} · {selectedFile.type || "Document"}
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById(fileInputId)?.click()}
+                        className="button button-dark text-xs px-5 py-2.5 rounded-lg shadow-xs font-bold cursor-pointer inline-flex items-center gap-2"
+                      >
+                        <FileText size={15} /> Browse Files
+                      </button>
+                    </div>
+
+                    <div className="pt-3 border-t border-ink/15 text-[11px] text-muted flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
+                      <span>Supported formats: <strong>PDF, DOCX, JPG, JPEG, PNG</strong></span>
+                      <span className="hidden sm:inline">·</span>
+                      <span>Maximum size: <strong>25 MB</strong></span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-xl border-2 border-ink bg-white flex items-start justify-between gap-3 text-left shadow-xs">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-11 h-11 rounded-lg bg-cyan border border-ink flex items-center justify-center shrink-0 text-ink font-bold">
+                          <FileText size={22} />
                         </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <strong className="text-sm font-bold truncate text-ink block">
+                              {selectedFile.name}
+                            </strong>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              ✓ Valid document
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted block mt-0.5">
+                            {formatFileSize(selectedFile.size)} · {selectedFile.type || "Document file"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById(fileInputId)?.click()}
+                          className="px-2.5 py-1 text-xs font-bold rounded border border-ink bg-paper hover:bg-cream text-ink cursor-pointer"
+                        >
+                          Replace
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFile(null);
+                            setFileError(null);
+                          }}
+                          className="px-2.5 py-1 text-xs font-bold rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 cursor-pointer"
+                        >
+                          Remove
+                        </button>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setSelectedFile(null)}
-                      className="px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-50 rounded-md border border-red-200 transition-colors shrink-0"
-                    >
-                      Remove
-                    </button>
-                  </div>
 
-                  {/* Accurate Page Count Input */}
-                  <div className="pt-3 border-t border-ink/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-paper p-3 rounded-lg border border-ink/20">
-                    <div>
-                      <label htmlFor="doc-page-count" className="block text-xs font-bold text-ink">
-                        Document Page Count
-                      </label>
-                      <span className="text-[11px] text-muted block leading-tight">
-                        Enter total pages in this file (used for accurate price estimation)
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 self-start sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => setPageCount(Math.max(1, pageCount - 1))}
-                        className="w-8 h-8 rounded border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold"
-                        aria-label="Decrease pages"
-                      >
-                        <Minus size={14} />
-                      </button>
-                      <input
-                        id="doc-page-count"
-                        type="number"
-                        min={1}
-                        max={1000}
-                        value={pageCount}
-                        onChange={(e) => setPageCount(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-16 h-8 text-center border border-ink rounded font-bold text-sm bg-paper"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setPageCount(pageCount + 1)}
-                        className="w-8 h-8 rounded border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold"
-                        aria-label="Increase pages"
-                      >
-                        <Plus size={14} />
-                      </button>
-                      <span className="text-xs font-semibold text-muted ml-1">pages</span>
+                    {/* Page Count Stepper */}
+                    <div className="p-3.5 rounded-xl border border-ink bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+                      <div>
+                        <label htmlFor="doc-page-count" className="block text-xs font-bold text-ink">
+                          Document Page Count
+                        </label>
+                        <span className="text-[11px] text-muted block leading-tight">
+                          Specify the page count to calculate accurate print pricing.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 self-start sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => setPageCount(Math.max(1, pageCount - 1))}
+                          className="w-8 h-8 rounded border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold cursor-pointer"
+                          aria-label="Decrease pages"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <input
+                          id="doc-page-count"
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={pageCount}
+                          onChange={(e) => setPageCount(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-16 h-8 text-center border border-ink rounded font-bold text-sm bg-paper text-ink"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPageCount(pageCount + 1)}
+                          className="w-8 h-8 rounded border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold cursor-pointer"
+                          aria-label="Increase pages"
+                        >
+                          <Plus size={14} />
+                        </button>
+                        <span className="text-xs font-bold text-muted ml-1">pages</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
+              {/* Validation error message */}
               {fileError && (
-                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-                  <AlertCircle size={16} className="shrink-0" />
-                  <span>{fileError}</span>
+                <div className="p-3.5 rounded-lg bg-red-50 border-2 border-red-300 text-red-800 text-xs flex items-center gap-2.5">
+                  <AlertCircle size={18} className="shrink-0 text-red-600" />
+                  <div>
+                    <strong>Upload Error: </strong>
+                    <span>{fileError}</span>
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* STEP 2: CUSTOMIZE */}
-          {step === "CUSTOMIZE" && (
-            <div className="space-y-5 text-left">
-              <div className="flex items-center justify-between">
+          {/* STEP 2: CHOOSE PRINT SETTINGS */}
+          {currentStep === 2 && (
+            <div className="space-y-4 text-left">
+              <div className="flex items-center justify-between border-b border-ink/15 pb-2.5">
                 <div>
-                  <h3 className="font-extrabold text-base sm:text-lg">Step 2: Print Settings</h3>
+                  <h3 className="font-extrabold text-base sm:text-lg text-ink">
+                    Step 2: Choose Print Settings
+                  </h3>
                   <p className="text-xs text-muted">
-                    {selectedFile?.name} ({pageCount} {pageCount === 1 ? "page" : "pages"})
+                    {selectedFile?.name} · {pageCount} {pageCount === 1 ? "page" : "pages"}
                   </p>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] uppercase font-bold text-muted tracking-wider block">Estimated Total</span>
-                  <strong className="text-lg font-black text-ink font-headline">₹{pricing.totalAmount}</strong>
+                  <strong className="text-xl font-black text-ink font-headline">₹{pricing.totalAmount}</strong>
                 </div>
               </div>
 
-              {/* Color Mode */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                  1. Print Colour Mode
-                </label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setConfig({ ...config, colorMode: "BW" })}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                      config.colorMode === "BW"
-                        ? "border-ink bg-paper shadow-xs font-bold"
-                        : "border-ink/20 bg-paper-soft text-muted hover:border-ink/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm text-ink">Black &amp; White</span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-paper-soft border border-ink/20 text-ink font-semibold">
-                        ₹{config.sides === "DOUBLE" ? "1.50" : "2.00"}/pg
-                      </span>
-                    </div>
-                    <span className="text-[11px] text-muted block mt-0.5">High-speed sharp mono laser Xerox</span>
-                  </button>
+              {/* Group 1: Paper & Color */}
+              <div className="sx-panel">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">
+                  Paper &amp; Colour Mode
+                </h4>
 
-                  <button
-                    type="button"
-                    onClick={() => setConfig({ ...config, colorMode: "COLOR" })}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                      config.colorMode === "COLOR"
-                        ? "border-ink bg-paper shadow-xs font-bold"
-                        : "border-ink/20 bg-paper-soft text-muted hover:border-ink/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm text-ink flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink to-cyan" />
-                        Full Colour
-                      </span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-yellow border border-ink text-ink font-semibold">
-                        ₹{config.sides === "DOUBLE" ? "9.00" : "10.00"}/pg
-                      </span>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Paper Size
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {(["A4", "A3", "Legal", "Letter"] as PaperSize[]).map((size) => (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => setConfig({ ...config, paperSize: size })}
+                          className={`py-2 px-1 text-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                            config.paperSize === size
+                              ? "border-ink bg-cyan text-ink shadow-xs"
+                              : "border-ink/20 bg-white text-muted hover:border-ink/60"
+                          }`}
+                        >
+                          {size}
+                        </button>
+                      ))}
                     </div>
-                    <span className="text-[11px] text-muted block mt-0.5">Rich CMYK digital color printing</span>
-                  </button>
-                </div>
-              </div>
+                  </div>
 
-              {/* Paper Size & Sides */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Paper Size */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                    2. Paper Size
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {(["A4", "A3", "Legal", "Letter"] as PaperSize[]).map((size) => (
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Colour Mode
+                    </label>
+                    <div className="grid grid-cols-2 gap-2.5">
                       <button
-                        key={size}
                         type="button"
-                        onClick={() => setConfig({ ...config, paperSize: size })}
-                        className={`py-2 px-1 text-center rounded-md border text-xs font-bold transition-all ${
-                          config.paperSize === size
-                            ? "border-ink bg-cyan text-ink shadow-xs"
-                            : "border-ink/20 bg-paper text-muted hover:border-ink/60"
+                        onClick={() => setConfig({ ...config, colorMode: "BW" })}
+                        className={`p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${
+                          config.colorMode === "BW"
+                            ? "border-ink bg-white shadow-xs font-bold"
+                            : "border-ink/20 bg-paper-soft text-muted hover:border-ink/50"
                         }`}
                       >
-                        {size}
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm text-ink">Black &amp; White</span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-cream border border-ink/20 text-ink font-semibold">
+                            ₹{config.sides === "DOUBLE" ? "1.50" : "2.00"}/pg
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-muted block mt-0.5">High-speed sharp mono laser Xerox</span>
                       </button>
-                    ))}
-                  </div>
-                </div>
 
-                {/* Sides */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                    3. Sides (Duplex)
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setConfig({ ...config, sides: "SINGLE" })}
-                      className={`py-2 px-2 text-center rounded-md border text-xs font-bold transition-all ${
-                        config.sides === "SINGLE"
-                          ? "border-ink bg-yellow text-ink shadow-xs"
-                          : "border-ink/20 bg-paper text-muted hover:border-ink/60"
-                      }`}
-                    >
-                      Single-sided
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfig({ ...config, sides: "DOUBLE" })}
-                      className={`py-2 px-2 text-center rounded-md border text-xs font-bold transition-all ${
-                        config.sides === "DOUBLE"
-                          ? "border-ink bg-yellow text-ink shadow-xs"
-                          : "border-ink/20 bg-paper text-muted hover:border-ink/60"
-                      }`}
-                    >
-                      Double-sided (Back to back)
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, colorMode: "COLOR" })}
+                        className={`p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${
+                          config.colorMode === "COLOR"
+                            ? "border-ink bg-white shadow-xs font-bold"
+                            : "border-ink/20 bg-paper-soft text-muted hover:border-ink/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm text-ink flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-cyan-500" />
+                            Full Colour
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-yellow border border-ink text-ink font-semibold">
+                            ₹{config.sides === "DOUBLE" ? "9.00" : "10.00"}/pg
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-muted block mt-0.5">Rich digital color printing</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Paper GSM & Finishing */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* GSM */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                    4. Paper Quality (GSM)
-                  </label>
-                  <select
-                    value={config.paperGsm}
-                    onChange={(e) => setConfig({ ...config, paperGsm: e.target.value as PaperGsm })}
-                    className="w-full p-2.5 rounded-lg border border-ink text-xs font-bold bg-paper text-ink"
-                  >
-                    <option value="75_GSM">Standard 75 GSM (Everyday Xerox)</option>
-                    <option value="100_GSM">Executive 100 GSM (+₹1.50/sheet)</option>
-                    <option value="220_GSM">Cardstock 220 GSM (+₹6.00/sheet)</option>
-                  </select>
-                </div>
+              {/* Group 2: Layout & Paper GSM */}
+              <div className="sx-panel">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">
+                  Layout &amp; Paper Weight
+                </h4>
 
-                {/* Binding */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                    5. Binding Options
-                  </label>
-                  <select
-                    value={config.binding}
-                    onChange={(e) => setConfig({ ...config, binding: e.target.value as BindingOption })}
-                    className="w-full p-2.5 rounded-lg border border-ink text-xs font-bold bg-paper text-ink"
-                  >
-                    <option value="NONE">None (Loose sheets)</option>
-                    <option value="STAPLE">Corner Stapling (+₹5/copy)</option>
-                    <option value="SPIRAL">Spiral / Comb Binding (+₹35/copy)</option>
-                    <option value="HARD_BOUND">Hard Book Stitch Binding (+₹95/copy)</option>
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Sides
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, sides: "SINGLE" })}
+                        className={`py-2 px-2 text-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                          config.sides === "SINGLE"
+                            ? "border-ink bg-yellow text-ink shadow-xs"
+                            : "border-ink/20 bg-white text-muted hover:border-ink/60"
+                        }`}
+                      >
+                        Single-sided
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, sides: "DOUBLE" })}
+                        className={`py-2 px-2 text-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                          config.sides === "DOUBLE"
+                            ? "border-ink bg-yellow text-ink shadow-xs"
+                            : "border-ink/20 bg-white text-muted hover:border-ink/60"
+                        }`}
+                      >
+                        Double-sided (Duplex)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Paper Weight (GSM)
+                    </label>
+                    <select
+                      value={config.paperGsm}
+                      onChange={(e) => setConfig({ ...config, paperGsm: e.target.value as PaperGsm })}
+                      className="w-full p-2 rounded-lg border border-ink text-xs font-bold bg-white text-ink cursor-pointer"
+                    >
+                      <option value="75_GSM">Standard 75 GSM (Everyday Xerox)</option>
+                      <option value="100_GSM">Executive 100 GSM (+₹1.50/sheet)</option>
+                      <option value="220_GSM">Cardstock 220 GSM (+₹6.00/sheet)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Lamination & Copies */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Lamination */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                    6. Lamination
-                  </label>
-                  <select
-                    value={config.lamination}
-                    onChange={(e) => setConfig({ ...config, lamination: e.target.value as LaminationOption })}
-                    className="w-full p-2.5 rounded-lg border border-ink text-xs font-bold bg-paper text-ink"
-                  >
-                    <option value="NONE">No Lamination</option>
-                    <option value="GLOSS">Gloss Lamination (+₹15/sheet)</option>
-                    <option value="MATTE">Matte Satin Lamination (+₹20/sheet)</option>
-                  </select>
-                </div>
+              {/* Group 3: Finishing & Copies */}
+              <div className="sx-panel">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">
+                  Finishing &amp; Copies
+                </h4>
 
-                {/* Copies Stepper */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
-                    7. Number of Copies
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setConfig({ ...config, copies: Math.max(1, config.copies - 1) })}
-                      className="w-9 h-9 rounded-md border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold"
-                      aria-label="Decrease copies"
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Number of Copies
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, copies: Math.max(1, config.copies - 1) })}
+                        className="w-8 h-8 rounded border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold cursor-pointer"
+                        aria-label="Decrease copies"
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={config.copies}
+                        onChange={(e) => setConfig({ ...config, copies: Math.max(1, parseInt(e.target.value) || 1) })}
+                        className="w-14 h-8 text-center border border-ink rounded font-bold text-xs bg-white text-ink"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, copies: config.copies + 1 })}
+                        className="w-8 h-8 rounded border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold cursor-pointer"
+                        aria-label="Increase copies"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Binding
+                    </label>
+                    <select
+                      value={config.binding}
+                      onChange={(e) => setConfig({ ...config, binding: e.target.value as BindingOption })}
+                      className="w-full p-2 rounded-lg border border-ink text-xs font-bold bg-white text-ink cursor-pointer"
                     >
-                      <Minus size={14} />
-                    </button>
-                    <input
-                      type="number"
-                      min={1}
-                      max={500}
-                      value={config.copies}
-                      onChange={(e) => setConfig({ ...config, copies: Math.max(1, parseInt(e.target.value) || 1) })}
-                      className="w-20 h-9 text-center border border-ink rounded-md font-bold text-sm bg-paper"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setConfig({ ...config, copies: config.copies + 1 })}
-                      className="w-9 h-9 rounded-md border border-ink bg-paper-soft hover:bg-cream flex items-center justify-center font-bold"
-                      aria-label="Increase copies"
+                      <option value="NONE">None (Loose sheets)</option>
+                      <option value="STAPLE">Corner Stapling (+₹5/copy)</option>
+                      <option value="SPIRAL">Spiral Wire (+₹35/copy)</option>
+                      <option value="HARD_BOUND">Hard Bound Book (+₹95/copy)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-ink mb-1">
+                      Lamination
+                    </label>
+                    <select
+                      value={config.lamination}
+                      onChange={(e) => setConfig({ ...config, lamination: e.target.value as LaminationOption })}
+                      className="w-full p-2 rounded-lg border border-ink text-xs font-bold bg-white text-ink cursor-pointer"
                     >
-                      <Plus size={14} />
-                    </button>
-                    <span className="text-xs font-bold text-muted ml-1">
-                      {config.copies === 1 ? "set" : "sets"}
+                      <option value="NONE">No Lamination</option>
+                      <option value="GLOSS">Gloss Lam (+₹15/sheet)</option>
+                      <option value="MATTE">Matte Lam (+₹20/sheet)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Group 4: Collection & Fulfillment */}
+              <div className="sx-panel">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">
+                  Collection Method
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCustomer({ ...customer, fulfillment: "STORE_PICKUP" })}
+                    className={`p-2.5 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      customer.fulfillment === "STORE_PICKUP"
+                        ? "border-ink bg-cyan font-bold text-ink shadow-xs"
+                        : "border-ink/20 bg-white text-muted hover:border-ink/60"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 font-bold text-ink">
+                      <Building2 size={14} /> Store Counter Pickup
                     </span>
-                  </div>
+                    <span className="text-[10px] text-muted block mt-0.5">12 Paper Street · Free</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCustomer({ ...customer, fulfillment: "LOCAL_DELIVERY" })}
+                    className={`p-2.5 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      customer.fulfillment === "LOCAL_DELIVERY"
+                        ? "border-ink bg-cyan font-bold text-ink shadow-xs"
+                        : "border-ink/20 bg-white text-muted hover:border-ink/60"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 font-bold text-ink">
+                      <Truck size={14} /> Campus Delivery
+                    </span>
+                    <span className="text-[10px] text-muted block mt-0.5">Hostels &amp; Campus (+₹40)</span>
+                  </button>
                 </div>
               </div>
 
-              {/* Price Breakdown Toggle */}
-              <div className="p-3.5 rounded-xl border border-ink/20 bg-cream/60 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-ink">
-                    <Sparkles size={14} className="text-blue" />
-                    <span>Live Estimate Breakdown</span>
+              {/* Prominent Estimated Price Box */}
+              <div className="p-4 rounded-xl border-2 border-ink bg-[#fff18c] text-ink space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-ink/80 block">
+                      Estimated Total Price
+                    </span>
+                    <span className="text-2xl font-black font-headline tracking-tight">
+                      ₹{pricing.totalAmount}
+                    </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowPricingDetails(!showPricingDetails)}
-                    className="text-xs text-blue underline font-bold"
+                    className="text-xs font-bold underline text-ink hover:text-blue-700 cursor-pointer"
                   >
-                    {showPricingDetails ? "Hide breakdown" : "View formula"}
+                    {showPricingDetails ? "Hide formula" : "View pricing formula"}
                   </button>
                 </div>
 
+                <p className="text-[11px] text-ink/80 leading-tight">
+                  * Transparent prototype pricing estimate in INR. Includes paper, ink, and finishing options.
+                </p>
+
                 {showPricingDetails && (
-                  <div className="pt-2 border-t border-ink/10 text-xs text-muted space-y-1">
+                  <div className="pt-2 border-t border-ink/20 text-xs text-ink/90 space-y-1 bg-white/60 p-2.5 rounded-lg">
                     <div className="flex justify-between">
                       <span>Base Print ({pageCount} pgs × {config.copies} copies @ ₹{pricing.ratePerPage}/pg):</span>
-                      <strong className="text-ink">₹{pricing.printCost}</strong>
+                      <strong>₹{pricing.printCost}</strong>
                     </div>
                     {pricing.paperSurcharge > 0 && (
                       <div className="flex justify-between">
-                        <span>Paper Stock Surcharge ({config.paperGsm.replace("_", " ")}):</span>
-                        <strong className="text-ink">₹{pricing.paperSurcharge}</strong>
+                        <span>GSM Surcharge ({config.paperGsm.replace("_", " ")}):</span>
+                        <strong>₹{pricing.paperSurcharge}</strong>
                       </div>
                     )}
                     {pricing.bindingCost > 0 && (
                       <div className="flex justify-between">
                         <span>Binding ({config.binding.replace("_", " ")}):</span>
-                        <strong className="text-ink">₹{pricing.bindingCost}</strong>
+                        <strong>₹{pricing.bindingCost}</strong>
                       </div>
                     )}
                     {pricing.laminationCost > 0 && (
                       <div className="flex justify-between">
                         <span>Lamination ({config.lamination}):</span>
-                        <strong className="text-ink">₹{pricing.laminationCost}</strong>
+                        <strong>₹{pricing.laminationCost}</strong>
                       </div>
                     )}
-                    <div className="text-[11px] text-muted-light pt-1 italic">
-                      * Transparent prototype demo pricing in INR. All rates configured dynamically.
-                    </div>
+                    {pricing.deliveryFee > 0 && (
+                      <div className="flex justify-between">
+                        <span>Campus Delivery Fee:</span>
+                        <strong>₹{pricing.deliveryFee}</strong>
+                      </div>
+                    )}
                   </div>
                 )}
-
-                <div className="flex items-baseline justify-between pt-1">
-                  <span className="text-xs font-bold text-ink">Total Estimated Amount:</span>
-                  <span className="text-xl font-black text-ink font-headline">₹{pricing.totalAmount}</span>
-                </div>
               </div>
             </div>
           )}
 
-          {/* STEP 3: CONFIRM & CUSTOMER DETAILS */}
-          {step === "CONFIRM" && (
-            <div className="space-y-5 text-left">
+          {/* STEP 3: REVIEW & CONFIRM */}
+          {currentStep === 3 && (
+            <div className="space-y-4 text-left">
               <div>
-                <h3 className="font-extrabold text-base sm:text-lg">Step 3: Review &amp; Customer Details</h3>
+                <h3 className="font-extrabold text-base sm:text-lg text-ink">
+                  Step 3: Review &amp; Confirm Demo Order
+                </h3>
                 <p className="text-xs text-muted">
-                  Verify your print configuration and provide contact details for order handover.
+                  Review your configuration summary and enter customer details for the demo ticket.
                 </p>
               </div>
 
-              {/* Order Specs Recap Card */}
-              <div className="p-4 rounded-xl border-2 border-ink bg-cream/40 space-y-2.5 text-xs">
+              {/* Order Recap Summary Card */}
+              <div className="p-4 rounded-xl border-2 border-ink bg-[#fbf7ee] space-y-2.5 text-xs text-ink shadow-xs">
                 <div className="flex justify-between items-start pb-2 border-b border-ink/15">
                   <div>
                     <strong className="block text-sm font-bold text-ink">{selectedFile?.name}</strong>
                     <span className="text-muted">
-                      {pageCount} {pageCount === 1 ? "page" : "pages"} · {config.copies} {config.copies === 1 ? "copy" : "copies"}
+                      {pageCount} {pageCount === 1 ? "page" : "pages"} · {config.copies} {config.copies === 1 ? "copy" : "copies"} · {formatFileSize(selectedFile?.size || 0)}
                     </span>
                   </div>
-                  <span className="text-base font-black text-ink font-headline">₹{pricing.totalAmount}</span>
+                  <div className="text-right">
+                    <span className="text-[10px] text-muted block uppercase font-bold">Estimated Total</span>
+                    <span className="text-lg font-black text-ink font-headline">₹{pricing.totalAmount}</span>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-ink">
@@ -693,7 +908,7 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
                     <strong>{config.paperSize} · {config.sides === "DOUBLE" ? "2-Sided" : "1-Sided"}</strong>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-muted block">Paper Stock</span>
+                    <span className="text-[10px] uppercase font-bold text-muted block">Paper Weight</span>
                     <strong>{config.paperGsm.replace("_", " ")}</strong>
                   </div>
                   <div>
@@ -705,135 +920,113 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
                     <strong>{config.lamination === "NONE" ? "None" : config.lamination}</strong>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-muted block">Total Sheets</span>
-                    <strong>{config.sides === "DOUBLE" ? Math.ceil(pageCount / 2) * config.copies : pageCount * config.copies} sheets</strong>
+                    <span className="text-[10px] uppercase font-bold text-muted block">Fulfillment</span>
+                    <strong>{customer.fulfillment === "STORE_PICKUP" ? "Counter Pickup" : "Campus Delivery"}</strong>
                   </div>
                 </div>
               </div>
 
-              {/* Customer Contact Details Form */}
-              <div className="space-y-3.5 bg-paper p-4 rounded-xl border border-ink/20">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-muted">
-                  Customer &amp; Counter Collection Info
+              {/* Customer Contact Details */}
+              <div className="sx-panel">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-2.5">
+                  Customer &amp; Collection Information
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-ink mb-1">
+                        Customer Full Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={customer.name}
+                        onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                        placeholder="e.g. Aarav Sharma"
+                        className={`w-full p-2.5 rounded-lg border text-xs font-bold bg-white text-ink ${
+                          customerErrors.name ? "border-red-500 bg-red-50" : "border-ink"
+                        }`}
+                        required
+                      />
+                      {customerErrors.name && (
+                        <span className="text-[11px] text-red-600 block mt-0.5">{customerErrors.name}</span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-ink mb-1">
+                        10-Digit Mobile Number <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={customer.phone}
+                        onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+                        placeholder="e.g. 9876543210"
+                        maxLength={14}
+                        className={`w-full p-2.5 rounded-lg border text-xs font-bold bg-white text-ink ${
+                          customerErrors.phone ? "border-red-500 bg-red-50" : "border-ink"
+                        }`}
+                        required
+                      />
+                      {customerErrors.phone && (
+                        <span className="text-[11px] text-red-600 block mt-0.5">{customerErrors.phone}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {customer.fulfillment === "LOCAL_DELIVERY" && (
+                    <div>
+                      <label className="block text-xs font-bold text-ink mb-1">
+                        Hostel / Campus Delivery Address <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={customer.deliveryAddress}
+                        onChange={(e) => setCustomer({ ...customer, deliveryAddress: e.target.value })}
+                        placeholder="e.g. Hostel 4, Room 212, Campus North"
+                        className="w-full p-2.5 rounded-lg border border-ink text-xs bg-white text-ink"
+                      />
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-bold text-ink mb-1">
-                      Customer Name <span className="text-red-500">*</span>
+                      Notes for Operator <span className="text-muted font-normal">(Optional)</span>
                     </label>
                     <input
                       type="text"
-                      value={customer.name}
-                      onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
-                      placeholder="e.g. Meril Patel"
-                      className={`w-full p-2.5 rounded-lg border text-xs font-bold bg-paper text-ink ${
-                        customerErrors.name ? "border-red-500 bg-red-50" : "border-ink"
-                      }`}
-                      required
+                      value={customer.notes}
+                      onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
+                      placeholder="e.g. Keep front page separate, needed for exam today"
+                      className="w-full p-2.5 rounded-lg border border-ink text-xs bg-white text-ink"
                     />
-                    {customerErrors.name && (
-                      <span className="text-[11px] text-red-600 block mt-0.5">{customerErrors.name}</span>
-                    )}
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-ink mb-1">
-                      Mobile Number <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="tel"
-                      value={customer.phone}
-                      onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-                      placeholder="e.g. 9876543210 (10 digits)"
-                      maxLength={14}
-                      className={`w-full p-2.5 rounded-lg border text-xs font-bold bg-paper text-ink ${
-                        customerErrors.phone ? "border-red-500 bg-red-50" : "border-ink"
-                      }`}
-                      required
-                    />
-                    {customerErrors.phone && (
-                      <span className="text-[11px] text-red-600 block mt-0.5">{customerErrors.phone}</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Fulfillment Picker */}
-                <div>
-                  <label className="block text-xs font-bold text-ink mb-1">
-                    Fulfillment Method
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCustomer({ ...customer, fulfillment: "STORE_PICKUP" })}
-                      className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
-                        customer.fulfillment === "STORE_PICKUP"
-                          ? "border-ink bg-cyan font-bold text-ink shadow-xs"
-                          : "border-ink/20 bg-paper-soft text-muted hover:border-ink/60"
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5 font-bold text-ink">
-                        <Building2 size={14} /> Store Counter Pickup
-                      </span>
-                      <span className="text-[10px] text-muted block mt-0.5">Shop No. 4, College Road · Free</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCustomer({ ...customer, fulfillment: "LOCAL_DELIVERY" })}
-                      className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
-                        customer.fulfillment === "LOCAL_DELIVERY"
-                          ? "border-ink bg-cyan font-bold text-ink shadow-xs"
-                          : "border-ink/20 bg-paper-soft text-muted hover:border-ink/60"
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5 font-bold text-ink">
-                        <Truck size={14} /> Campus Delivery
-                      </span>
-                      <span className="text-[10px] text-muted block mt-0.5">Hostels &amp; College Campus (+₹40)</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Special Operator Notes */}
-                <div>
-                  <label className="block text-xs font-bold text-ink mb-1">
-                    Notes for Printer Operator <span className="text-muted font-normal">(Optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={customer.notes}
-                    onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
-                    placeholder="e.g. Urgent for 3 PM exam, print back cover in blue"
-                    className="w-full p-2.5 rounded-lg border border-ink text-xs bg-paper text-ink"
-                  />
                 </div>
               </div>
             </div>
           )}
 
           {/* STEP 4: SUCCESS RECEIPT */}
-          {step === "SUCCESS" && createdOrder && (
+          {currentStep === 4 && createdOrder && (
             <div className="space-y-4 text-center py-2">
-              <div className="w-14 h-14 rounded-full bg-success-bg border-2 border-ink mx-auto flex items-center justify-center text-success shadow-xs">
+              <div className="w-14 h-14 rounded-full bg-emerald-100 border-2 border-emerald-700 mx-auto flex items-center justify-center text-emerald-800 shadow-xs">
                 <Check size={28} />
               </div>
 
               <div>
-                <span className="inline-block px-3 py-1 rounded-full bg-yellow border border-ink text-xs font-black tracking-wide text-ink mb-1">
-                  ORDER PLACED · QUEUED AT PRINTER 01
+                <span className="inline-block px-3 py-1 rounded-full bg-yellow border-2 border-ink text-xs font-black tracking-wide text-ink mb-1">
+                  PROTOTYPE DEMO ORDER CREATED
                 </span>
-                <h3 className="font-extrabold text-xl font-headline tracking-tight">
-                  Order #{createdOrder.id}
+                <h3 className="font-extrabold text-xl font-headline tracking-tight text-ink">
+                  Demo Reference #{createdOrder.id}
                 </h3>
-                <p className="text-xs text-muted max-w-sm mx-auto mt-1">
-                  Your print job is queued for production. Handover ready in approx. 15–25 minutes.
+                <p className="text-xs text-muted max-w-sm mx-auto mt-1 leading-relaxed">
+                  Your order has been recorded in the local demo queue. View and transition its status in the Admin Operations Dashboard.
                 </p>
               </div>
 
               {/* Neo-Memphis Ticket Receipt */}
-              <div className="p-4 rounded-xl border-2 border-ink bg-cream text-left text-xs max-w-md mx-auto space-y-2.5 shadow-sm">
+              <div className="p-4 rounded-xl border-2 border-ink bg-[#fffaf1] text-left text-xs max-w-md mx-auto space-y-2.5 shadow-sm">
                 <div className="flex items-center justify-between pb-2 border-b border-ink/15">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-muted block">Order Reference</span>
@@ -841,7 +1034,7 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
                   </div>
                   <button
                     onClick={copyOrderId}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue hover:underline bg-paper px-2 py-1 rounded border border-ink/20"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue hover:underline bg-white px-2 py-1 rounded border border-ink cursor-pointer"
                   >
                     <Copy size={12} /> Copy Ref
                   </button>
@@ -872,75 +1065,80 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
                 </div>
               </div>
 
-              {/* Actions */}
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 max-w-md mx-auto">
+                <strong>Demonstration notice:</strong> This is a prototype order. No real payment has been processed, and no hardware printer command has been triggered.
+              </div>
+
+              {/* Action Buttons */}
               <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-2 max-w-md mx-auto">
                 <a
                   href="/admin"
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg border-2 border-ink bg-cyan hover:bg-cyan/80 text-ink font-bold text-xs shadow-xs transition-transform active:translate-y-0.5"
                 >
-                  <ExternalLink size={14} /> Open Operations Queue in Admin
+                  <ExternalLink size={14} /> Open Admin Operations Queue
                 </a>
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg border-2 border-ink bg-paper hover:bg-cream text-ink font-bold text-xs transition-colors"
+                  onClick={handleResetForNewOrder}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg border-2 border-ink bg-white hover:bg-cream text-ink font-bold text-xs transition-colors cursor-pointer"
                 >
-                  Done / Close
+                  <RefreshCw size={14} /> Print Another Document
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg border-2 border-ink bg-ink text-paper font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Modal Footer Controls */}
-        {step !== "SUCCESS" && (
-          <div className="px-5 py-3.5 border-t-2 border-ink bg-paper-soft flex items-center justify-between">
-            {step === "UPLOAD" ? (
+        {/* Modal Footer Toolbar */}
+        {currentStep !== 4 && (
+          <div className="sx-footer">
+            {currentStep === 1 ? (
               <button
                 type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-lg border border-ink text-xs font-bold text-muted hover:text-ink hover:bg-paper"
+                onClick={handleAttemptClose}
+                className="px-4 py-2 rounded-lg border border-ink text-xs font-bold text-muted hover:text-ink hover:bg-paper cursor-pointer"
               >
                 Cancel
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => setStep(step === "CONFIRM" ? "CUSTOMIZE" : "UPLOAD")}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-ink text-xs font-bold text-ink hover:bg-paper"
+                onClick={() => setCurrentStep((prev) => (prev - 1) as StepNumber)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-ink text-xs font-bold text-ink hover:bg-paper cursor-pointer"
               >
-                <ArrowLeft size={14} /> Back
+                <ArrowLeft size={14} /> {currentStep === 2 ? "Back to Upload" : "Back to Settings"}
               </button>
             )}
 
-            {step === "UPLOAD" && (
+            {currentStep === 1 && (
               <button
                 type="button"
-                onClick={() => {
-                  if (!selectedFile) {
-                    setFileError("Please select a file to continue");
-                    return;
-                  }
-                  setStep("CUSTOMIZE");
-                }}
-                disabled={!selectedFile}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg border-2 border-ink bg-ink text-paper font-bold text-xs shadow-xs hover:bg-ink-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-all active:translate-y-0.5"
+                onClick={handleContinueToSettings}
+                disabled={!selectedFile || Boolean(fileError)}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg border-2 border-ink bg-ink text-paper font-bold text-xs shadow-xs hover:bg-ink-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-all active:translate-y-0.5 cursor-pointer"
               >
-                Customize Print <ArrowRight size={14} />
+                Continue to Print Settings <ArrowRight size={14} />
               </button>
             )}
 
-            {step === "CUSTOMIZE" && (
+            {currentStep === 2 && (
               <button
                 type="button"
-                onClick={handleProceedToConfirm}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg border-2 border-ink bg-ink text-paper font-bold text-xs shadow-xs hover:bg-ink-secondary transition-all active:translate-y-0.5"
+                onClick={handleContinueToReview}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg border-2 border-ink bg-ink text-paper font-bold text-xs shadow-xs hover:bg-ink-secondary transition-all active:translate-y-0.5 cursor-pointer"
               >
                 Review &amp; Confirm (₹{pricing.totalAmount}) <ArrowRight size={14} />
               </button>
             )}
 
-            {step === "CONFIRM" && (
+            {currentStep === 3 && (
               <button
                 type="button"
                 onClick={handleConfirmOrder}
@@ -949,17 +1147,62 @@ export default function SmartXeroxModal({ onClose }: SmartXeroxModalProps) {
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 size={15} className="animate-spin" /> Queuing Order…
+                    <Loader2 size={15} className="animate-spin" /> Submitting Order…
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 size={15} /> Confirm &amp; Send to Printer (₹{pricing.totalAmount})
+                    <CheckCircle2 size={15} /> Confirm Demo Order (₹{pricing.totalAmount})
                   </>
                 )}
               </button>
             )}
           </div>
         )}
+
+        {/* Discard Confirmation Modal / Backdrop dialog */}
+        <AnimatePresence>
+          {showDiscardConfirm && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/60 backdrop-blur-xs"
+              role="alertdialog"
+              aria-modal="true"
+            >
+              <motion.div
+                className="bg-white border-2 border-ink rounded-xl p-5 max-w-sm w-full text-left shadow-lg space-y-3"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+              >
+                <div className="flex items-center gap-2.5 text-amber-600">
+                  <AlertTriangle size={20} />
+                  <strong className="text-sm text-ink">Discard Draft Order?</strong>
+                </div>
+                <p className="text-xs text-muted leading-relaxed">
+                  You have an uploaded document and configured print settings. If you close now, your draft selections will be discarded.
+                </p>
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscardConfirm(false)}
+                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-ink text-ink bg-paper hover:bg-cream cursor-pointer"
+                  >
+                    Keep Editing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDiscardConfirm(false);
+                      onClose();
+                    }}
+                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg border-2 border-ink text-white bg-red-600 hover:bg-red-700 shadow-xs cursor-pointer"
+                  >
+                    Discard &amp; Close
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
